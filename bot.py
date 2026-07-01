@@ -4,7 +4,7 @@ from PIL import Image
 from telegram import Update
 from telegram.ext import Application,CommandHandler,MessageHandler,filters,ContextTypes,ConversationHandler
 
-# ==================== 配置（已内置你的 Token）====================
+# ==================== 配置 ====================
 BOT_TOKEN="5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"
 PASSWORD="268428."
 SMS_USERNAME="8c44166a5730186802cb1c949446e892df74413c11e12fecbceb74f3c16be27c"
@@ -13,7 +13,7 @@ SMS_PROJECT_ID="99593"
 BASE_URL="http://www.gxdlys.com"
 SMS_API_URL="http://api.haozhuma.com"
 
-# ==================== SM4 加密（不变）====================
+# ==================== SM4 加密 ====================
 SM4_KEY="CatsPK0WWWRRhjkw"
 SboxTable=[0xd6,0x90,0xe9,0xfe,0xcc,0xe1,0x3d,0xb7,0x16,0xb6,0x14,0xc2,0x28,0xfb,0x2c,0x05,0x2b,0x67,0x9a,0x76,0x2a,0xbe,0x04,0xc3,0xaa,0x44,0x13,0x26,0x49,0x86,0x06,0x99,0x9c,0x42,0x50,0xf4,0x91,0xef,0x98,0x7a,0x33,0x54,0x0b,0x43,0xed,0xcf,0xac,0x62,0xe4,0xb3,0x1c,0xa9,0xc9,0x08,0xe8,0x95,0x80,0xdf,0x94,0xfa,0x75,0x8f,0x3f,0xa6,0x47,0x07,0xa7,0xfc,0xf3,0x73,0x17,0xba,0x83,0x59,0x3c,0x19,0xe6,0x85,0x4f,0xa8,0x68,0x6b,0x81,0xb2,0x71,0x64,0xda,0x8b,0xf8,0xeb,0x0f,0x4b,0x70,0x56,0x9d,0x35,0x1e,0x24,0x0e,0x5e,0x63,0x58,0xd1,0xa2,0x25,0x22,0x7c,0x3b,0x01,0x21,0x78,0x87,0xd4,0x00,0x46,0x57,0x9f,0xd3,0x27,0x52,0x4c,0x36,0x02,0xe7,0xa0,0xc4,0xc8,0x9e,0xea,0xbf,0x8a,0xd2,0x40,0xc7,0x38,0xb5,0xa3,0xf7,0xf2,0xce,0xf9,0x61,0x15,0xa1,0xe0,0xae,0x5d,0xa4,0x9b,0x34,0x1a,0x55,0xad,0x93,0x32,0x30,0xf5,0x8c,0xb1,0xe3,0x1d,0xf6,0xe2,0x2e,0x82,0x66,0xca,0x60,0xc0,0x29,0x23,0xab,0x0d,0x53,0x4e,0x6f,0xd5,0xdb,0x37,0x45,0xde,0xfd,0x8e,0x2f,0x03,0xff,0x6a,0x72,0x6d,0x6c,0x5b,0x51,0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48]
 FK=[0xa3b1bac6,0x56aa3350,0x677d9197,0xb27022dc]
@@ -42,11 +42,10 @@ def sm4_encrypt_ecb(plain_text):
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ==================== 网络会话 ====================
 session=requests.Session()
 HEADERS={"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
 
-# ==================== OCR 识别（保留自动，失败则手动）====================
+# ==================== OCR 识别 ====================
 def ocr_captcha(img_bytes):
     try:
         b64=base64.b64encode(img_bytes).decode()
@@ -58,7 +57,7 @@ def ocr_captcha(img_bytes):
     except: pass
     return None
 
-# ==================== 接码平台函数 ====================
+# ==================== 接码平台 ====================
 def sms_login():
     try:
         r=requests.get(f"{SMS_API_URL}/sms/",params={'api':'login','user':SMS_USERNAME,'pass':SMS_PASSWORD},timeout=30)
@@ -85,7 +84,7 @@ def get_sms(token,phone):
         time.sleep(5)
     return None
 
-# ==================== 获取图形验证码（自动+手动）====================
+# ==================== 获取验证码（自动+手动）====================
 def get_captcha():
     for _ in range(3):
         try:
@@ -96,17 +95,21 @@ def get_captcha():
             img_b64=data.get("data",{}).get("img")
             uuid=data.get("data",{}).get("uuid")
             if not img_b64 or not uuid: continue
-            # 尝试自动识别
+            # 自动识别
             code=ocr_captcha(base64.b64decode(img_b64))
             if code:
                 return code, uuid
             else:
-                # 自动失败，保存图片到临时文件供手动输入
-                img_data = base64.b64decode(img_b64)
-                with open("/tmp/captcha.png", "wb") as f:
-                    f.write(img_data)
-                print("自动识别失败，将发送图片让用户手动输入")
-                return None, uuid  # 返回 None, uuid 表示需要手动输入
+                # 自动失败，保存图片供手动输入
+                try:
+                    img_data = base64.b64decode(img_b64)
+                    # 在 GitHub Actions 中 /tmp 可写
+                    with open("/tmp/captcha.png", "wb") as f:
+                        f.write(img_data)
+                    print("自动识别失败，已保存图片到 /tmp/captcha.png")
+                except Exception as e:
+                    print(f"保存图片失败: {e}")
+                return None, uuid  # 返回 None 表示需要手动输入
         except: pass
         time.sleep(1)
     return None, None
@@ -143,7 +146,6 @@ def login(id_card):
     except: pass
     return False,"异常"
 
-# ==================== 查询身份证照片 ====================
 def query_id_photo(name,id_card):
     try:
         encoded_name=urllib.parse.quote(name)
@@ -163,13 +165,13 @@ def download_photo(file_id):
     except: pass
     return None
 
-# ==================== 核心流程（含手动输入验证码）====================
+# ==================== 核心流程（含手动输入）====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
-        # 1. 先尝试登录
+        # 1. 尝试登录
         ok, msg = login(id_card)
         if ok:
-            result=query_id_photo(real_name,id_card)
+            result = query_id_photo(real_name, id_card)
             if result and result.get("statusCode")==200:
                 data=result.get("data",{})
                 item2=data.get("item2",{})
@@ -182,10 +184,10 @@ async def process_and_reply(update, context, real_name, id_card):
             else:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 查询失败")
                 return
-        
+
         # 2. 未注册，走注册流程
         if "未注册" in msg or "不存在" in msg:
-            # 获取手机号
+            # 2.1 接码登录
             token = sms_login()
             if not token:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 接码平台登录失败")
@@ -194,53 +196,62 @@ async def process_and_reply(update, context, real_name, id_card):
             if not phone:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取手机号失败")
                 return
-            
-            # 获取图形验证码
+
+            # 2.2 获取图形验证码
             captcha, uuid = get_captcha()
-            if not captcha and uuid:
-                # 需要手动输入验证码
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="🤖 自动识别验证码失败，请查看图片手动输入")
+            if captcha is None and uuid is not None:
+                # 需要手动输入
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="🤖 自动识别失败，请查看图片手动输入验证码")
                 # 发送图片
-                with open("/tmp/captcha.png", "rb") as f:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=io.BytesIO(f.read()),
-                        caption="请回复图片中的验证码（字母数字，不区分大小写）"
-                    )
-                # 等待用户回复
+                try:
+                    with open("/tmp/captcha.png", "rb") as f:
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=io.BytesIO(f.read()),
+                            caption="请回复图片中的验证码（字母数字，不区分大小写）"
+                        )
+                except Exception as e:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 发送图片失败: {e}")
+                    return
+
+                # 等待用户回复（60秒超时）
                 def check(msg):
                     return msg.text and msg.chat.id == update.effective_chat.id
-                user_msg = await context.bot.wait_for(
-                    "message",
-                    check=check,
-                    timeout=60
-                )
-                captcha = user_msg.text.strip().upper()
+                try:
+                    user_msg = await context.bot.wait_for(
+                        "message",
+                        check=check,
+                        timeout=60
+                    )
+                    captcha = user_msg.text.strip().upper()
+                except asyncio.TimeoutError:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text="⏰ 输入超时，请重新 /query")
+                    return
             elif not captcha:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 验证码获取失败")
                 return
-            
-            # 发送短信
+
+            # 2.3 发送短信
             if not send_sms(phone, captcha, uuid):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信发送失败")
                 return
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📨 短信已发送，正在自动获取验证码...")
-            
-            # 获取短信验证码
+
+            # 2.4 获取短信验证码
             sms_code = get_sms(token, phone)
             if not sms_code:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信验证码获取失败")
                 return
-            
-            # 注册
+
+            # 2.5 注册
             if not register(phone, sms_code, captcha, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册失败")
                 return
-            
-            # 注册后登录查询
-            ok2,_=login(id_card)
+
+            # 2.6 注册后登录查询
+            ok2,_ = login(id_card)
             if ok2:
-                result=query_id_photo(real_name,id_card)
+                result = query_id_photo(real_name, id_card)
                 if result and result.get("statusCode")==200:
                     data=result.get("data",{})
                     item2=data.get("item2",{})
@@ -255,14 +266,13 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册后登录失败")
         else:
             await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ {msg}")
-    except asyncio.TimeoutError:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="⏰ 输入超时，请重新 /query")
+
     except Exception as e:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 异常：{e}")
     finally:
         context.user_data.clear()
 
-# ==================== Telegram 对话处理 ====================
+# ==================== Telegram 对话 ====================
 WAITING_NAME, WAITING_IDCARD = range(2)
 
 async def start(update,context):
