@@ -29,6 +29,8 @@ def sm4_calci_rk(ka): bb=sm4_sbox(ka); return bb^rotl(bb,13)^rotl(bb,23)
 def sm4_f(x0,x1,x2,x3,rk): return x0^sm4_lt(x1^x2^x3^rk)
 def pkcs7_pad(data,block_size=16): pad_len=block_size-(len(data)%block_size); return data+bytes([pad_len])*pad_len
 def sm4_encrypt_ecb(plain_text):
+    if not plain_text:
+        raise ValueError("plain_text cannot be None or empty")
     data=plain_text.encode('utf-8'); padded=pkcs7_pad(data,16); key_bytes=SM4_KEY.encode('utf-8'); mk=[0]*4
     for i in range(4): mk[i]=(key_bytes[i*4]<<24)|(key_bytes[i*4+1]<<16)|(key_bytes[i*4+2]<<8)|key_bytes[i*4+3]
     k=[0]*36
@@ -140,6 +142,8 @@ def get_captcha():
 
 # ==================== 发送短信、注册、登录、查询 ====================
 def send_sms(phone,captcha,uuid):
+    if not phone or not captcha or not uuid:
+        return False
     data={"phoneId":phone,"type":"10001","IsEncryptPhoneId":"false","verifyCode":captcha,"uuid":uuid}
     try:
         r=session.post(f"{BASE_URL}/System/SmsService/PostVerifyCode",data=data,headers=HEADERS,timeout=60)
@@ -147,6 +151,9 @@ def send_sms(phone,captcha,uuid):
     except: return False
 
 def register(phone,sms_code,captcha_code,real_name,id_card):
+    # 确保所有参数都不是 None
+    if not all([phone, sms_code, captcha_code, real_name, id_card]):
+        return False
     data={"zipArea":"","userType":"-1","wechatUid":"","realName":real_name,"iDCard":id_card,"loginName":id_card,"password":PASSWORD,"idcardImg1Url":"218,8a785f252c8518","idcardImg2Url":"216,8a7860c46589f3","idcardImg3Url":"214,8a78664776227f","idcardImg4Url":"","ownerId":"","tel":phone,"isTelEncrypted":"false","validCode":sms_code,"verifyCode":captcha_code}
     try:
         r=session.post(f"{BASE_URL}/Wechat/User/RegistAdd",data=data,headers=HEADERS,timeout=60)
@@ -154,25 +161,28 @@ def register(phone,sms_code,captcha_code,real_name,id_card):
     except: return False
 
 def login(id_card):
-    enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card)); enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
-    data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
-    headers=HEADERS.copy()
-    headers["Referer"]="http://www.gxdlys.com/Wechat/Home/Login"
-    headers["Host"]="www.gxdlys.com"
+    if not id_card:
+        return False, "身份证号为空"
     try:
+        enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card))
+        enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
+        data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+        headers=HEADERS.copy()
+        headers["Referer"]="http://www.gxdlys.com/Wechat/Home/Login"
+        headers["Host"]="www.gxdlys.com"
         r=session.post("http://www.gxdlys.com/Wechat/Home/PostLogin",headers=headers,data=data,timeout=60)
         if r.status_code==200:
             res=r.json()
             if res.get("statusCode")==200:
                 return True, None
             else:
-                # 确保 msg 不是 None
                 msg = res.get("info")
                 if msg is None:
                     msg = "未知错误"
                 return False, str(msg)
     except Exception as e:
         print(f"登录异常: {e}")
+        return False, f"异常: {e}"
     return False, "异常"
 
 def query_id_photo(name,id_card):
@@ -203,8 +213,12 @@ def download_photo(file_id):
 # ==================== 核心流程（半自动） ====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
+        # 确保参数非空
+        if not real_name or not id_card:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 姓名和身份证不能为空")
+            return
+
         ok, msg = login(id_card)
-        # 确保 msg 是字符串
         msg = msg or ""
         if ok:
             result = query_id_photo(real_name, id_card)
