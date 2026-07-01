@@ -17,6 +17,17 @@ BASE_URL="http://www.gxdlys.com"
 SMS_API_URL="http://api.haozhuma.com"
 print("Config loaded.")
 
+# ==================== 安全 quote 函数 ====================
+def safe_quote(s):
+    """安全编码，s 为 None 或空时返回空字符串"""
+    if s is None:
+        return ""
+    try:
+        return urllib.parse.quote(str(s))
+    except Exception as e:
+        print(f"safe_quote 异常: {e}")
+        return ""
+
 # ==================== SM4 加密 ====================
 SM4_KEY="CatsPK0WWWRRhjkw"
 SboxTable=[0xd6,0x90,0xe9,0xfe,0xcc,0xe1,0x3d,0xb7,0x16,0xb6,0x14,0xc2,0x28,0xfb,0x2c,0x05,0x2b,0x67,0x9a,0x76,0x2a,0xbe,0x04,0xc3,0xaa,0x44,0x13,0x26,0x49,0x86,0x06,0x99,0x9c,0x42,0x50,0xf4,0x91,0xef,0x98,0x7a,0x33,0x54,0x0b,0x43,0xed,0xcf,0xac,0x62,0xe4,0xb3,0x1c,0xa9,0xc9,0x08,0xe8,0x95,0x80,0xdf,0x94,0xfa,0x75,0x8f,0x3f,0xa6,0x47,0x07,0xa7,0xfc,0xf3,0x73,0x17,0xba,0x83,0x59,0x3c,0x19,0xe6,0x85,0x4f,0xa8,0x68,0x6b,0x81,0xb2,0x71,0x64,0xda,0x8b,0xf8,0xeb,0x0f,0x4b,0x70,0x56,0x9d,0x35,0x1e,0x24,0x0e,0x5e,0x63,0x58,0xd1,0xa2,0x25,0x22,0x7c,0x3b,0x01,0x21,0x78,0x87,0xd4,0x00,0x46,0x57,0x9f,0xd3,0x27,0x52,0x4c,0x36,0x02,0xe7,0xa0,0xc4,0xc8,0x9e,0xea,0xbf,0x8a,0xd2,0x40,0xc7,0x38,0xb5,0xa3,0xf7,0xf2,0xce,0xf9,0x61,0x15,0xa1,0xe0,0xae,0x5d,0xa4,0x9b,0x34,0x1a,0x55,0xad,0x93,0x32,0x30,0xf5,0x8c,0xb1,0xe3,0x1d,0xf6,0xe2,0x2e,0x82,0x66,0xca,0x60,0xc0,0x29,0x23,0xab,0x0d,0x53,0x4e,0x6f,0xd5,0xdb,0x37,0x45,0xde,0xfd,0x8e,0x2f,0x03,0xff,0x6a,0x72,0x6d,0x6c,0x5b,0x51,0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48]
@@ -29,9 +40,13 @@ def sm4_calci_rk(ka): bb=sm4_sbox(ka); return bb^rotl(bb,13)^rotl(bb,23)
 def sm4_f(x0,x1,x2,x3,rk): return x0^sm4_lt(x1^x2^x3^rk)
 def pkcs7_pad(data,block_size=16): pad_len=block_size-(len(data)%block_size); return data+bytes([pad_len])*pad_len
 def sm4_encrypt_ecb(plain_text):
-    if not plain_text:
-        raise ValueError("plain_text cannot be None or empty")
-    data=plain_text.encode('utf-8'); padded=pkcs7_pad(data,16); key_bytes=SM4_KEY.encode('utf-8'); mk=[0]*4
+    if plain_text is None:
+        return ""
+    try:
+        data=plain_text.encode('utf-8')
+    except:
+        return ""
+    padded=pkcs7_pad(data,16); key_bytes=SM4_KEY.encode('utf-8'); mk=[0]*4
     for i in range(4): mk[i]=(key_bytes[i*4]<<24)|(key_bytes[i*4+1]<<16)|(key_bytes[i*4+2]<<8)|key_bytes[i*4+3]
     k=[0]*36
     for i in range(4): k[i]=mk[i]^FK[i]
@@ -61,7 +76,6 @@ HEADERS = {
 }
 print("Session created.")
 
-# ==================== 预热 ====================
 def warm_up():
     try:
         r = session.get(BASE_URL, headers=HEADERS, timeout=10)
@@ -138,7 +152,7 @@ def get_captcha():
         except Exception as e:
             print(f"[验证码] 异常: {e}")
             time.sleep(2)
-    return None, None, "获取验证码失败：尝试5次均失败。请检查网络或稍后重试。"
+    return None, None, "获取验证码失败：尝试5次均失败。"
 
 # ==================== 发送短信、注册、登录、查询 ====================
 def send_sms(phone,captcha,uuid):
@@ -151,7 +165,6 @@ def send_sms(phone,captcha,uuid):
     except: return False
 
 def register(phone,sms_code,captcha_code,real_name,id_card):
-    # 确保所有参数都不是 None
     if not all([phone, sms_code, captcha_code, real_name, id_card]):
         return False
     data={"zipArea":"","userType":"-1","wechatUid":"","realName":real_name,"iDCard":id_card,"loginName":id_card,"password":PASSWORD,"idcardImg1Url":"218,8a785f252c8518","idcardImg2Url":"216,8a7860c46589f3","idcardImg3Url":"214,8a78664776227f","idcardImg4Url":"","ownerId":"","tel":phone,"isTelEncrypted":"false","validCode":sms_code,"verifyCode":captcha_code}
@@ -164,38 +177,37 @@ def login(id_card):
     if not id_card:
         return False, "身份证号为空"
     try:
-        enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card))
-        enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
-        data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
-        headers=HEADERS.copy()
-        headers["Referer"]="http://www.gxdlys.com/Wechat/Home/Login"
-        headers["Host"]="www.gxdlys.com"
-        r=session.post("http://www.gxdlys.com/Wechat/Home/PostLogin",headers=headers,data=data,timeout=60)
-        if r.status_code==200:
-            res=r.json()
-            if res.get("statusCode")==200:
+        enc_login = safe_quote(sm4_encrypt_ecb(id_card))
+        enc_pwd = safe_quote(sm4_encrypt_ecb(PASSWORD))
+        data = f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+        headers = HEADERS.copy()
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
+        headers["Host"] = "www.gxdlys.com"
+        r = session.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("statusCode") == 200:
                 return True, None
             else:
                 msg = res.get("info")
-                if msg is None:
-                    msg = "未知错误"
-                return False, str(msg)
+                return False, str(msg) if msg else "未知错误"
     except Exception as e:
         print(f"登录异常: {e}")
-        return False, f"异常: {e}"
-    return False, "异常"
+        return False, f"登录异常: {e}"
+    return False, "登录失败"
 
 def query_id_photo(name,id_card):
     if not name or not id_card:
         return None
     try:
-        encoded_name=urllib.parse.quote(name)
-        url=f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
-        headers=HEADERS.copy()
-        headers["Referer"]="http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
-        headers["Host"]="www.gxdlys.com"
-        r=session.get(url,headers=headers,timeout=60)
-        if r.status_code==200: return r.json()
+        encoded_name = safe_quote(name)
+        url = f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
+        headers = HEADERS.copy()
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
+        headers["Host"] = "www.gxdlys.com"
+        r = session.get(url, headers=headers, timeout=60)
+        if r.status_code == 200:
+            return r.json()
     except Exception as e:
         print(f"查询照片异常: {e}")
     return None
@@ -204,29 +216,28 @@ def download_photo(file_id):
     if not file_id:
         return None
     try:
-        r=session.get(f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}",timeout=60)
-        if r.status_code==200 and 'image' in r.headers.get('Content-Type',''): return r.content
+        r = session.get(f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}", timeout=60)
+        if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
+            return r.content
     except Exception as e:
         print(f"下载图片异常: {e}")
     return None
 
-# ==================== 核心流程（半自动） ====================
+# ==================== 核心流程 ====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
-        # 确保参数非空
         if not real_name or not id_card:
             await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 姓名和身份证不能为空")
             return
 
         ok, msg = login(id_card)
-        msg = msg or ""
         if ok:
             result = query_id_photo(real_name, id_card)
-            if result and result.get("statusCode")==200:
-                data=result.get("data",{})
-                item2=data.get("item2",{})
-                info=f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
-                photo_bytes=download_photo(data.get("item1")) if data.get("item1") else None
+            if result and result.get("statusCode") == 200:
+                data = result.get("data", {})
+                item2 = data.get("item2", {})
+                info = f"姓名：{item2.get('xm', '')}\n身份证：{item2.get('gmsfhm', '')}\n民族：{item2.get('mz', '')}\n有效期：{item2.get('uL_FROM_DATE', '')} 至 {item2.get('uL_END_DATE', '')}"
+                photo_bytes = download_photo(data.get("item1")) if data.get("item1") else None
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ 成功！\n{info}")
                 if photo_bytes:
                     await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo_bytes))
@@ -235,6 +246,7 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 查询失败")
                 return
 
+        # 未注册流程
         if "未注册" in msg or "不存在" in msg:
             token = sms_login()
             if not token:
@@ -253,7 +265,7 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败，请稍后重试")
                 return
 
-            # 发送验证码图片给用户，等待手动输入
+            # 发送验证码图片
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📷 请查看下方验证码图片，输入字母数字组合（不区分大小写）")
             try:
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img_data), caption="验证码图片")
@@ -261,7 +273,6 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 发送图片失败: {e}")
                 return
 
-            # 等待用户回复
             def check(msg):
                 return msg.text and msg.chat.id == update.effective_chat.id
             try:
@@ -275,32 +286,28 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 未获取到验证码")
                 return
 
-            # 发送短信
             if not send_sms(phone, captcha, uuid):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信发送失败")
                 return
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📨 短信已发送，正在自动获取验证码...")
 
-            # 获取短信验证码
             sms_code = get_sms(token, phone)
             if not sms_code:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信验证码获取失败")
                 return
 
-            # 注册
             if not register(phone, sms_code, captcha, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册失败")
                 return
 
-            # 注册后登录查询
             ok2,_ = login(id_card)
             if ok2:
                 result = query_id_photo(real_name, id_card)
-                if result and result.get("statusCode")==200:
-                    data=result.get("data",{})
-                    item2=data.get("item2",{})
-                    info=f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
-                    photo_bytes=download_photo(data.get("item1")) if data.get("item1") else None
+                if result and result.get("statusCode") == 200:
+                    data = result.get("data", {})
+                    item2 = data.get("item2", {})
+                    info = f"姓名：{item2.get('xm', '')}\n身份证：{item2.get('gmsfhm', '')}\n民族：{item2.get('mz', '')}\n有效期：{item2.get('uL_FROM_DATE', '')} 至 {item2.get('uL_END_DATE', '')}"
+                    photo_bytes = download_photo(data.get("item1")) if data.get("item1") else None
                     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ 注册成功！\n{info}")
                     if photo_bytes:
                         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo_bytes))
