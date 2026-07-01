@@ -42,8 +42,22 @@ def sm4_encrypt_ecb(plain_text):
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-session=requests.Session()
-HEADERS={"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
+# ==================== 全局会话 ====================
+session = requests.Session()
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
+}
+
+# 预热：访问一次首页，获取必要的 Cookie
+def warm_up():
+    try:
+        session.get(BASE_URL, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=10)
+        time.sleep(1)
+        print("[预热] 成功访问首页")
+    except Exception as e:
+        print(f"[预热] 警告: {e}")
 
 # ==================== 接码平台 ====================
 def sms_login():
@@ -72,23 +86,49 @@ def get_sms(token,phone):
         time.sleep(5)
     return None
 
-# ==================== 获取验证码（直接返回图片数据）====================
+# ==================== 获取验证码（预热 + 重试 5 次）====================
 def get_captcha():
-    for _ in range(3):
+    # 先预热
+    warm_up()
+    
+    for attempt in range(5):
         try:
-            r=session.get(f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode",headers=HEADERS,timeout=10)
-            if r.status_code!=200: continue
-            data=r.json()
-            if data.get("statusCode")!=200: continue
-            img_b64=data.get("data",{}).get("img")
-            uuid=data.get("data",{}).get("uuid")
-            if not img_b64 or not uuid: continue
-            # 解码图片数据
+            print(f"[验证码] 第 {attempt+1} 次尝试...")
+            r = session.get(
+                f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode",
+                headers=HEADERS,
+                timeout=15
+            )
+            print(f"[验证码] 状态码: {r.status_code}")
+            if r.status_code != 200:
+                print(f"[验证码] 状态码非200: {r.status_code}")
+                time.sleep(2)
+                continue
+
+            data = r.json()
+            print(f"[验证码] 响应: {data}")
+            if data.get("statusCode") != 200:
+                print(f"[验证码] statusCode错误: {data.get('info')}")
+                time.sleep(2)
+                continue
+
+            img_b64 = data.get("data", {}).get("img")
+            uuid = data.get("data", {}).get("uuid")
+            if not img_b64 or not uuid:
+                print("[验证码] 缺少img或uuid")
+                time.sleep(2)
+                continue
+
+            # 解码图片
             img_data = base64.b64decode(img_b64)
-            return img_data, uuid  # 直接返回字节数据
+            print("[验证码] 获取成功")
+            return img_data, uuid
+
         except Exception as e:
-            print(f"获取验证码出错: {e}")
-        time.sleep(1)
+            print(f"[验证码] 异常: {e}")
+            time.sleep(2)
+
+    print("[验证码] 所有尝试失败")
     return None, None
 
 # ==================== 发送短信 ====================
@@ -142,7 +182,7 @@ def download_photo(file_id):
     except: pass
     return None
 
-# ==================== 核心流程（手动输入）====================
+# ==================== 核心流程 ====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
         # 1. 尝试登录
@@ -177,13 +217,12 @@ async def process_and_reply(update, context, real_name, id_card):
             # 获取验证码图片
             img_data, uuid = get_captcha()
             if uuid is None:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败，请稍后重试")
                 return
 
             # 发送图片并要求手动输入
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📷 请查看下方验证码图片，输入字母数字组合（不区分大小写）")
             try:
-                # 直接发送图片数据，无需保存文件
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=io.BytesIO(img_data),
