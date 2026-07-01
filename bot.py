@@ -50,22 +50,27 @@ print("SM4 ready.")
 # ==================== 会话 ====================
 session = requests.Session()
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
-    "Host": "www.gxdlys.com",
-    "Accept": "application/json, text/javascript, */*; q=0.01"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1"
 }
 print("Session created.")
 
 # ==================== 预热 ====================
 def warm_up():
     try:
-        session.get(BASE_URL, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=10)
+        r = session.get(BASE_URL, headers=HEADERS, timeout=10)
+        print(f"[预热] 首页状态码: {r.status_code}")
+        reg_url = f"{BASE_URL}/Wechat/User/Regist"
+        r = session.get(reg_url, headers=HEADERS, timeout=10)
+        print(f"[预热] 注册页状态码: {r.status_code}")
         time.sleep(1)
-        print("[预热] 成功访问首页")
+        print("[预热] 完成")
     except Exception as e:
-        print(f"[预热] 警告: {e}")
+        print(f"[预热] 异常: {e}")
 
 # ==================== 接码平台 ====================
 def sms_login():
@@ -94,32 +99,35 @@ def get_sms(token,phone):
         time.sleep(5)
     return None
 
-# ==================== 获取验证码（返回详细错误）====================
+# ==================== 获取验证码 ====================
 def get_captcha():
     warm_up()
+    captcha_headers = HEADERS.copy()
+    captcha_headers.update({
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{BASE_URL}/Wechat/User/Regist",
+        "Accept": "application/json, text/javascript, */*; q=0.01"
+    })
     for attempt in range(5):
         try:
             print(f"[验证码] 第 {attempt+1} 次尝试...")
             r = session.get(
                 f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode",
-                headers=HEADERS,
+                headers=captcha_headers,
                 timeout=15
             )
             print(f"[验证码] 状态码: {r.status_code}")
             if r.status_code != 200:
-                print(f"[验证码] 状态码非200: {r.text[:200]}")
                 time.sleep(2)
                 continue
             data = r.json()
             print(f"[验证码] 响应: {data}")
             if data.get("statusCode") != 200:
-                print(f"[验证码] statusCode错误: {data.get('info')}")
                 time.sleep(2)
                 continue
             img_b64 = data.get("data", {}).get("img")
             uuid = data.get("data", {}).get("uuid")
             if not img_b64 or not uuid:
-                print("[验证码] 缺少img或uuid")
                 time.sleep(2)
                 continue
             img_data = base64.b64decode(img_b64)
@@ -128,9 +136,7 @@ def get_captcha():
         except Exception as e:
             print(f"[验证码] 异常: {e}")
             time.sleep(2)
-    # 所有尝试失败，返回详细错误信息
-    error_msg = f"获取验证码失败：尝试5次均失败。请检查网络或目标网站是否可用。"
-    return None, None, error_msg
+    return None, None, "获取验证码失败：尝试5次均失败。请检查网络或稍后重试。"
 
 # ==================== 发送短信、注册、登录、查询 ====================
 def send_sms(phone,captcha,uuid):
@@ -181,7 +187,7 @@ def download_photo(file_id):
     except: pass
     return None
 
-# ==================== 核心流程 ====================
+# ==================== 核心流程（半自动） ====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
         ok, msg = login(id_card)
@@ -218,13 +224,15 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败，请稍后重试")
                 return
 
+            # 发送验证码图片给用户，等待手动输入
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📷 请查看下方验证码图片，输入字母数字组合（不区分大小写）")
             try:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img_data), caption="输入验证码（回复此消息）")
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img_data), caption="验证码图片")
             except Exception as e:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 发送图片失败: {e}")
                 return
 
+            # 等待用户回复
             def check(msg):
                 return msg.text and msg.chat.id == update.effective_chat.id
             try:
@@ -238,20 +246,24 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 未获取到验证码")
                 return
 
+            # 发送短信
             if not send_sms(phone, captcha, uuid):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信发送失败")
                 return
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📨 短信已发送，正在自动获取验证码...")
 
+            # 获取短信验证码
             sms_code = get_sms(token, phone)
             if not sms_code:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信验证码获取失败")
                 return
 
+            # 注册
             if not register(phone, sms_code, captcha, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册失败")
                 return
 
+            # 注册后登录查询
             ok2,_ = login(id_card)
             if ok2:
                 result = query_id_photo(real_name, id_card)
