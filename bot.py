@@ -52,7 +52,9 @@ session = requests.Session()
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36",
     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
+    "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
+    "Host": "www.gxdlys.com",
+    "Accept": "application/json, text/javascript, */*; q=0.01"
 }
 print("Session created.")
 
@@ -92,35 +94,43 @@ def get_sms(token,phone):
         time.sleep(5)
     return None
 
-# ==================== 获取验证码 ====================
+# ==================== 获取验证码（返回详细错误）====================
 def get_captcha():
     warm_up()
     for attempt in range(5):
         try:
             print(f"[验证码] 第 {attempt+1} 次尝试...")
-            r = session.get(f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode", headers=HEADERS, timeout=15)
+            r = session.get(
+                f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode",
+                headers=HEADERS,
+                timeout=15
+            )
             print(f"[验证码] 状态码: {r.status_code}")
             if r.status_code != 200:
+                print(f"[验证码] 状态码非200: {r.text[:200]}")
                 time.sleep(2)
                 continue
             data = r.json()
             print(f"[验证码] 响应: {data}")
             if data.get("statusCode") != 200:
+                print(f"[验证码] statusCode错误: {data.get('info')}")
                 time.sleep(2)
                 continue
             img_b64 = data.get("data", {}).get("img")
             uuid = data.get("data", {}).get("uuid")
             if not img_b64 or not uuid:
+                print("[验证码] 缺少img或uuid")
                 time.sleep(2)
                 continue
             img_data = base64.b64decode(img_b64)
             print("[验证码] 获取成功")
-            return img_data, uuid
+            return img_data, uuid, None
         except Exception as e:
             print(f"[验证码] 异常: {e}")
             time.sleep(2)
-    print("[验证码] 所有尝试失败")
-    return None, None
+    # 所有尝试失败，返回详细错误信息
+    error_msg = f"获取验证码失败：尝试5次均失败。请检查网络或目标网站是否可用。"
+    return None, None, error_msg
 
 # ==================== 发送短信、注册、登录、查询 ====================
 def send_sms(phone,captcha,uuid):
@@ -200,7 +210,10 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取手机号失败")
                 return
 
-            img_data, uuid = get_captcha()
+            img_data, uuid, error = get_captcha()
+            if error:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ {error}")
+                return
             if uuid is None:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败，请稍后重试")
                 return
