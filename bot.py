@@ -163,12 +163,21 @@ def login(id_card):
         r=session.post("http://www.gxdlys.com/Wechat/Home/PostLogin",headers=headers,data=data,timeout=60)
         if r.status_code==200:
             res=r.json()
-            if res.get("statusCode")==200: return True,None
-            else: return False,res.get("info","")
-    except: pass
-    return False,"异常"
+            if res.get("statusCode")==200:
+                return True, None
+            else:
+                # 确保 msg 不是 None
+                msg = res.get("info")
+                if msg is None:
+                    msg = "未知错误"
+                return False, str(msg)
+    except Exception as e:
+        print(f"登录异常: {e}")
+    return False, "异常"
 
 def query_id_photo(name,id_card):
+    if not name or not id_card:
+        return None
     try:
         encoded_name=urllib.parse.quote(name)
         url=f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
@@ -177,20 +186,26 @@ def query_id_photo(name,id_card):
         headers["Host"]="www.gxdlys.com"
         r=session.get(url,headers=headers,timeout=60)
         if r.status_code==200: return r.json()
-    except: pass
+    except Exception as e:
+        print(f"查询照片异常: {e}")
     return None
 
 def download_photo(file_id):
+    if not file_id:
+        return None
     try:
         r=session.get(f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}",timeout=60)
         if r.status_code==200 and 'image' in r.headers.get('Content-Type',''): return r.content
-    except: pass
+    except Exception as e:
+        print(f"下载图片异常: {e}")
     return None
 
 # ==================== 核心流程（半自动） ====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
         ok, msg = login(id_card)
+        # 确保 msg 是字符串
+        msg = msg or ""
         if ok:
             result = query_id_photo(real_name, id_card)
             if result and result.get("statusCode")==200:
