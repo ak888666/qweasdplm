@@ -42,11 +42,10 @@ def sm4_encrypt_ecb(plain_text):
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ==================== 会话 ====================
 session=requests.Session()
 HEADERS={"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
 
-# ==================== 接码平台函数 ====================
+# ==================== 接码平台 ====================
 def sms_login():
     try:
         r=requests.get(f"{SMS_API_URL}/sms/",params={'api':'login','user':SMS_USERNAME,'pass':SMS_PASSWORD},timeout=30)
@@ -73,7 +72,7 @@ def get_sms(token,phone):
         time.sleep(5)
     return None
 
-# ==================== 获取图形验证码（强制手动）====================
+# ==================== 获取验证码（直接返回图片数据）====================
 def get_captcha():
     for _ in range(3):
         try:
@@ -84,12 +83,11 @@ def get_captcha():
             img_b64=data.get("data",{}).get("img")
             uuid=data.get("data",{}).get("uuid")
             if not img_b64 or not uuid: continue
-            # 保存图片到临时文件
+            # 解码图片数据
             img_data = base64.b64decode(img_b64)
-            with open("/tmp/captcha.png", "wb") as f:
-                f.write(img_data)
-            return None, uuid  # 永远返回 None，强制手动输入
-        except: pass
+            return img_data, uuid  # 直接返回字节数据
+        except Exception as e:
+            print(f"获取验证码出错: {e}")
         time.sleep(1)
     return None, None
 
@@ -144,7 +142,7 @@ def download_photo(file_id):
     except: pass
     return None
 
-# ==================== 核心流程（强制手动）====================
+# ==================== 核心流程（手动输入）====================
 async def process_and_reply(update, context, real_name, id_card):
     try:
         # 1. 尝试登录
@@ -176,21 +174,21 @@ async def process_and_reply(update, context, real_name, id_card):
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取手机号失败")
                 return
 
-            # 获取图形验证码（强制手动）
-            captcha, uuid = get_captcha()
+            # 获取验证码图片
+            img_data, uuid = get_captcha()
             if uuid is None:
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 验证码获取失败")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败")
                 return
 
             # 发送图片并要求手动输入
             await context.bot.send_message(chat_id=update.effective_chat.id, text="📷 请查看下方验证码图片，输入字母数字组合（不区分大小写）")
             try:
-                with open("/tmp/captcha.png", "rb") as f:
-                    await context.bot.send_photo(
-                        chat_id=update.effective_chat.id,
-                        photo=io.BytesIO(f.read()),
-                        caption="输入验证码："
-                    )
+                # 直接发送图片数据，无需保存文件
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=io.BytesIO(img_data),
+                    caption="输入验证码（回复此消息）"
+                )
             except Exception as e:
                 await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 发送图片失败: {e}")
                 return
