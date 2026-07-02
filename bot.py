@@ -15,26 +15,37 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================================
-#  ⚠️ 以下所有配置必须替换为您的真实值！
+#  从环境变量读取配置（GitHub Secrets 注入）
 # ============================================================================
-BOT_TOKEN = "5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"   # 您的 Bot Token（已填）
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    print("❌ 错误: 未设置 BOT_TOKEN 环境变量")
+    sys.exit(1)
 
-# 以下从浏览器抓包获取（必须替换！）
 BASE_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",
-    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
-    "SESSION": "REPLACE_SESSION_HERE",
-    "SERVERID": "REPLACE_SERVERID_HERE",
+    "cna": os.getenv("CNA", ""),
+    "JSESSIONID": os.getenv("JSESSIONID", ""),
+    "SESSION": os.getenv("SESSION", ""),
+    "SERVERID": os.getenv("SERVERID", ""),
 }
-ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
+ZWFW_TOKEN = os.getenv("ZWFW_TOKEN", "")
 
-# 其他参数（通常无需改动）
+# 检查必填项
+missing = [k for k, v in BASE_COOKIES.items() if not v]
+if missing:
+    print(f"❌ 错误: 缺少 Cookie 值: {', '.join(missing)}")
+    sys.exit(1)
+if not ZWFW_TOKEN:
+    print("❌ 错误: 缺少 ZWFW_TOKEN 环境变量")
+    sys.exit(1)
+
+# 其他固定参数（如需修改可改为环境变量）
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
 # ============================================================================
-#  请求头（自动使用上面的 ZWFW_TOKEN）
+#  请求头（完全来自您提供的脚本）
 # ============================================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -74,26 +85,6 @@ HEADERS2 = {
 }
 
 # ============================================================================
-#  配置检查（确保必填项不为空）
-# ============================================================================
-def check_config():
-    errors = []
-    if any(v == "请替换为实际cna值" or v == "" for v in BASE_COOKIES.values()):
-        errors.append("BASE_COOKIES 中有未替换的占位符或空值")
-    if ZWFW_TOKEN == "请替换为实际zwfw-token值" or not ZWFW_TOKEN:
-        errors.append("ZWFW_TOKEN 未替换")
-    if errors:
-        print("=" * 60)
-        print("❌ 配置错误：")
-        for err in errors:
-            print(f"  - {err}")
-        print("\n请从浏览器抓包获取真实的 Cookie 和 zwfw-token，然后替换代码中的对应位置。")
-        print("=" * 60)
-        sys.exit(1)
-
-check_config()
-
-# ============================================================================
 #  核心查询函数
 # ============================================================================
 def query_id_card(id_card):
@@ -130,7 +121,7 @@ def query_id_card(id_card):
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"
+        "userId": "1547878749006024704"   # 如过期需从抓包更新
     }
 
     for attempt in range(RETRY_TIMES):
