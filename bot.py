@@ -12,27 +12,30 @@ import urllib3
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# 禁用 SSL 警告（与您的脚本保持一致）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================================
-#  海南查询配置（必须替换为真实值！）
+#  ⚠️ 以下所有配置必须替换为您的真实值！
 # ============================================================================
-FIXED_NAME = "刘德华"                 # 固定姓名（根据接口要求可修改）
-SAVE_FOLDER = "temp_files"           # 临时文件目录（机器人会自动清理）
-RETRY_TIMES = 5
+BOT_TOKEN = "5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"   # 您的 Bot Token（已填）
 
-# ⚠️ 以下所有值必须从浏览器最新抓包中复制，且不能包含中文！
+# 以下从浏览器抓包获取（必须替换！）
 BASE_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",          # 替换为实际 cna
+    "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
     "SESSION": "REPLACE_SESSION_HERE",
     "SERVERID": "REPLACE_SERVERID_HERE",
 }
+ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
 
-ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"   # 替换为真实的 zwfw-token
+# 其他参数（通常无需改动）
+FIXED_NAME = "刘德华"
+SAVE_FOLDER = "temp_files"
+RETRY_TIMES = 5
 
-# 以下两个请求头与您的脚本一致（通常无需修改）
+# ============================================================================
+#  请求头（自动使用上面的 ZWFW_TOKEN）
+# ============================================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -71,37 +74,29 @@ HEADERS2 = {
 }
 
 # ============================================================================
-#  配置检查（防止非 ASCII 字符导致编码错误）
+#  配置检查（确保必填项不为空）
 # ============================================================================
-def check_ascii_config():
+def check_config():
     errors = []
-    for key, value in BASE_COOKIES.items():
-        try:
-            value.encode('ascii')
-        except UnicodeEncodeError:
-            errors.append(f"BASE_COOKIES['{key}'] = '{value}' 包含非 ASCII 字符")
-    try:
-        ZWFW_TOKEN.encode('ascii')
-    except UnicodeEncodeError:
-        errors.append(f"ZWFW_TOKEN = '{ZWFW_TOKEN}' 包含非 ASCII 字符")
+    if any(v == "请替换为实际cna值" or v == "" for v in BASE_COOKIES.values()):
+        errors.append("BASE_COOKIES 中有未替换的占位符或空值")
+    if ZWFW_TOKEN == "请替换为实际zwfw-token值" or not ZWFW_TOKEN:
+        errors.append("ZWFW_TOKEN 未替换")
     if errors:
         print("=" * 60)
-        print("❌ 配置错误：以下变量包含非 ASCII 字符（如中文），必须替换为实际值！")
+        print("❌ 配置错误：")
         for err in errors:
             print(f"  - {err}")
-        print("\n请从浏览器最新请求中复制正确的 Cookie 和 zwfw-token 值。")
-        print("所有值应为英文、数字、-、_ 等 ASCII 字符。")
+        print("\n请从浏览器抓包获取真实的 Cookie 和 zwfw-token，然后替换代码中的对应位置。")
         print("=" * 60)
         sys.exit(1)
 
-check_ascii_config()  # 启动时检查
+check_config()
 
 # ============================================================================
-#  核心查询函数（同步，返回 (成功, 内容)）
+#  核心查询函数
 # ============================================================================
 def query_id_card(id_card):
-    """查询并返回 (成功标志, 二进制数据或错误消息)"""
-    # 1. 验证身份证
     id_card = id_card.strip().upper()
     if len(id_card) != 18:
         return False, "身份证号必须为18位"
@@ -110,7 +105,6 @@ def query_id_card(id_card):
     if id_card[17] not in '0123456789X':
         return False, "最后一位必须是数字或X"
 
-    # 2. 创建临时目录（如果不存在）
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
 
@@ -118,7 +112,6 @@ def query_id_card(id_card):
     session.cookies.update(BASE_COOKIES)
     session.verify = False
 
-    # 3. 构造第一个请求（获取附件ID）
     url1 = "https://zwfw.dn.haikou.gov.cn/rest/materialshare/canShareMaterial"
     data = {
         "itemMaterialId": "1498591712970792960",
@@ -137,7 +130,7 @@ def query_id_card(id_card):
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"   # 如过期需从抓包更新
+        "userId": "1547878749006024704"
     }
 
     for attempt in range(RETRY_TIMES):
@@ -149,17 +142,14 @@ def query_id_card(id_card):
             time.sleep(2)
             continue
 
-        # 调试输出（可在后台查看日志）
         print(f"[{attempt+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
 
         if result1.get("code") == "1":
             try:
                 attachment_id = result1["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
-                # 4. 下载附件
                 url2 = f"https://zwfw.dn.haikou.gov.cn/rest/attachment/{attachment_id}"
                 res2 = session.get(url2, headers=HEADERS2, timeout=30)
                 if res2.status_code == 200:
-                    # 返回二进制内容
                     return True, res2.content
                 else:
                     return False, f"下载附件失败，HTTP {res2.status_code}"
@@ -173,7 +163,7 @@ def query_id_card(id_card):
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
 # ============================================================================
-#  Telegram 命令处理
+#  Telegram 命令
 # ============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -193,20 +183,16 @@ async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     id_card = args[0].strip()
-    # 简单长度校验（详细校验在 query_id_card 中）
     if len(id_card) != 18:
         await update.message.reply_text("❌ 身份证号必须为18位")
         return
 
     await update.message.reply_text("⏳ 正在查询海南系统，请稍候...")
 
-    # 异步执行查询（避免阻塞事件循环）
     loop = asyncio.get_event_loop()
     success, result = await loop.run_in_executor(None, query_id_card, id_card)
 
     if success:
-        # result 为二进制数据（PDF 或图片）
-        # 发送为文档（因为可能是 PDF）
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
             document=io.BytesIO(result),
