@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (异步修复版 + 手动验证码备选) =====")
+print("===== Bot starting (最终修复版) =====")
 
 import asyncio, io, re, time, json, urllib.parse, base64, os, requests, urllib3
 from typing import Optional
@@ -51,7 +51,7 @@ def sm4_encrypt_ecb(pt):
         res.extend(out)
     return base64.b64encode(res).decode('utf-8')
 
-# ========== 广西功能 ==========
+# ========== 广西同步函数 ==========
 session_gx = requests.Session()
 HEADERS_GX = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -65,7 +65,6 @@ HEADERS_GX = {
     "X-Requested-With": "XMLHttpRequest",
     "Host": "www.gxdlys.com"
 }
-
 def gx_get_captcha_sync(retry=3):
     for attempt in range(retry):
         try:
@@ -78,12 +77,10 @@ def gx_get_captcha_sync(retry=3):
                     img_b64 = data["data"]["img"]
                     uuid = data["data"]["uuid"]
                     return True, base64.b64decode(img_b64), uuid
-            print(f"验证码尝试{attempt+1}失败: {resp.status_code if resp.status_code !=200 else data.get('info')}")
         except Exception as e:
-            print(f"尝试{attempt+1}/{retry}: {e}")
+            print(f"验证码尝试{attempt+1}失败: {e}")
         time.sleep(2)
     return False, None, None
-
 def gx_login_auto_sync(id_card):
     if not id_card: return False, "身份证为空"
     try:
@@ -102,7 +99,6 @@ def gx_login_auto_sync(id_card):
     except Exception as e:
         return False, f"异常: {e}"
     return False, "登录失败"
-
 def gx_query_photo_sync(name, id_card):
     try:
         url = f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={urllib.parse.quote(name)}"
@@ -114,7 +110,6 @@ def gx_query_photo_sync(name, id_card):
     except Exception as e:
         print(f"查询异常: {e}")
     return None
-
 def gx_download_photo_sync(file_id):
     if not file_id: return None
     try:
@@ -124,7 +119,6 @@ def gx_download_photo_sync(file_id):
     except Exception as e:
         print(f"下载异常: {e}")
     return None
-
 def gx_login_manual_sync(id_card, password):
     try:
         enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
@@ -142,7 +136,6 @@ def gx_login_manual_sync(id_card, password):
     except Exception as e:
         return False, f"异常: {e}"
     return False, "登录失败"
-
 def gx_send_sms_sync(phone, captcha_code, uuid):
     try:
         data = {"phoneId": phone, "type": "10001", "IsEncryptPhoneId": "false", "verifyCode": captcha_code, "uuid": uuid}
@@ -159,7 +152,6 @@ def gx_send_sms_sync(phone, captcha_code, uuid):
             return False, f"HTTP {r.status_code}"
     except Exception as e:
         return False, f"异常: {e}"
-
 def gx_register_sync(phone, sms_code, captcha_code, real_name, id_card):
     try:
         data = {
@@ -187,27 +179,21 @@ def gx_register_sync(phone, sms_code, captcha_code, real_name, id_card):
 async def gx_login_auto(id_card):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_login_auto_sync, id_card)
-
 async def gx_query_photo(name, id_card):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_query_photo_sync, name, id_card)
-
 async def gx_download_photo(file_id):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_download_photo_sync, file_id)
-
 async def gx_login_manual(id_card, password):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_login_manual_sync, id_card, password)
-
 async def gx_send_sms(phone, captcha_code, uuid):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_send_sms_sync, phone, captcha_code, uuid)
-
 async def gx_register(phone, sms_code, captcha_code, real_name, id_card):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_register_sync, phone, sms_code, captcha_code, real_name, id_card)
-
 async def gx_get_captcha(retry=3):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, gx_get_captcha_sync, retry)
@@ -256,7 +242,6 @@ def hainan_query_sync(id_card):
             print(f"海南异常: {e}")
         time.sleep(2)
     return False, "连续失败"
-
 async def hainan_query(id_card):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, hainan_query_sync, id_card)
@@ -273,36 +258,35 @@ async def start(update, context):
     )
 
 async def guangxi_start(update, context):
-    await update.message.reply_text("请输入姓名：")
+    await update.message.reply_text("📝 请输入姓名：")
     return WAIT_NAME
 
 async def gx_name(update, context):
     context.user_data['name'] = update.message.text.strip()
-    await update.message.reply_text("请输入身份证号码：")
+    await update.message.reply_text(f"✅ 收到姓名：{context.user_data['name']}\n请输入身份证号码：")
     return WAIT_ID
 
 async def gx_id(update, context):
     id_card = update.message.text.strip()
     if len(id_card)!=18 or not id_card[:17].isdigit():
-        await update.message.reply_text("❌ 身份证格式错误，请重新输入：")
+        await update.message.reply_text("❌ 身份证格式错误（需18位数字，最后一位X），请重新输入：")
         return WAIT_ID
     context.user_data['id'] = id_card
-    await update.message.reply_text("请输入手机号码：")
+    await update.message.reply_text(f"✅ 身份证已记录\n请输入手机号码：")
     return WAIT_PHONE
 
 async def gx_phone(update, context):
     phone = update.message.text.strip()
     if not phone.isdigit() or len(phone)!=11:
-        await update.message.reply_text("❌ 手机号11位数字，请重新输入：")
+        await update.message.reply_text("❌ 手机号需11位数字，请重新输入：")
         return WAIT_PHONE
     context.user_data['phone'] = phone
-    await update.message.reply_text("⏳ 尝试登录...")
+    await update.message.reply_text("⏳ 正在尝试登录...")
     id_card = context.user_data['id']
-    # 异步执行登录，并设置总超时
     try:
         ok, msg = await asyncio.wait_for(gx_login_auto(id_card), timeout=30)
     except asyncio.TimeoutError:
-        await update.message.reply_text("❌ 登录超时，请稍后重试或检查网络。")
+        await update.message.reply_text("❌ 登录超时，请稍后重试。")
         context.user_data.clear()
         return ConversationHandler.END
     if ok:
@@ -317,31 +301,29 @@ async def gx_phone(update, context):
             if photo:
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo))
         else:
-            await update.message.reply_text("❌ 查询失败")
+            await update.message.reply_text("❌ 查询失败，请检查信息")
         context.user_data.clear()
         return ConversationHandler.END
     else:
         if "未注册" in msg or "不存在" in msg:
-            await update.message.reply_text("ℹ️ 账号未注册，开始注册流程。正在尝试获取图形验证码...")
+            await update.message.reply_text("ℹ️ 账号未注册，准备注册。正在获取图形验证码...")
             ok, img, uuid = await gx_get_captcha()
             if ok:
                 context.user_data['uuid'] = uuid
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img), caption="请输入图形验证码（不区分大小写）：")
                 return WAIT_CAPTCHA
             else:
-                # 自动获取失败，引导手动
                 manual_msg = (
-                    "❌ 自动获取验证码失败（可能是网络或服务器限制）。\n"
-                    "请手动在浏览器中打开以下网址查看验证码（可能需要先登录该网站）：\n"
-                    "`http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode`\n\n"
-                    "或者您也可以直接打开广西政务的注册页面，查看验证码图片，然后在这里输入验证码。\n"
-                    "请输入验证码（不区分大小写）："
+                    "❌ 自动获取验证码失败（可能网络限制）。\n"
+                    "请手动在浏览器中打开以下网址查看验证码：\n"
+                    "`http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode`\n"
+                    "然后在此输入验证码（不区分大小写）："
                 )
                 await update.message.reply_text(manual_msg, parse_mode="Markdown")
-                context.user_data['uuid'] = None  # 标记手动模式
+                context.user_data['uuid'] = None
                 return WAIT_CAPTCHA
         else:
-            await update.message.reply_text(f"❌ 登录失败：{msg}，请检查信息")
+            await update.message.reply_text(f"❌ 登录失败：{msg}")
             context.user_data.clear()
             return ConversationHandler.END
 
@@ -351,18 +333,15 @@ async def gx_captcha(update, context):
         await update.message.reply_text("请输入验证码：")
         return WAIT_CAPTCHA
     context.user_data['captcha'] = captcha
-    
-    # 如果uuid为空，尝试重新获取
     if context.user_data.get('uuid') is None:
-        await update.message.reply_text("⏳ 正在重新获取会话信息...")
+        await update.message.reply_text("⏳ 重新获取会话...")
         ok, img, uuid = await gx_get_captcha()
         if ok:
             context.user_data['uuid'] = uuid
         else:
-            await update.message.reply_text("❌ 无法获取有效的会话信息，请稍后重试或手动刷新。")
+            await update.message.reply_text("❌ 无法获取会话，请稍后重试。")
             context.user_data.clear()
             return ConversationHandler.END
-    
     phone = context.user_data['phone']
     uuid = context.user_data['uuid']
     await update.message.reply_text("⏳ 发送短信验证码...")
@@ -373,7 +352,7 @@ async def gx_captcha(update, context):
         context.user_data.clear()
         return ConversationHandler.END
     if ok:
-        await update.message.reply_text("✅ 短信已发送，请输入短信验证码：")
+        await update.message.reply_text("✅ 短信已发送，请输入收到的短信验证码：")
         return WAIT_SMS
     else:
         await update.message.reply_text(f"❌ 发送短信失败：{msg}")
@@ -455,7 +434,7 @@ def main():
         fallbacks=[CommandHandler('start', start)]
     )
     app.add_handler(conv)
-    print("===== Bot is ready (异步修复 + 手动验证码) =====")
+    print("===== Bot is ready (最终版) =====")
     app.run_polling()
 
 if __name__ == '__main__':
