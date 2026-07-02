@@ -276,56 +276,63 @@ async def gx_id(update, context):
     return WAIT_PHONE
 
 async def gx_phone(update, context):
-    phone = update.message.text.strip()
-    if not phone.isdigit() or len(phone)!=11:
-        await update.message.reply_text("❌ 手机号需11位数字，请重新输入：")
-        return WAIT_PHONE
-    context.user_data['phone'] = phone
-    await update.message.reply_text("⏳ 正在尝试登录...")
-    id_card = context.user_data['id']
+    # 先立即回复用户，表明收到手机号
+    await update.message.reply_text("📞 收到手机号，正在处理...")
     try:
+        phone = update.message.text.strip()
+        if not phone.isdigit() or len(phone)!=11:
+            await update.message.reply_text("❌ 手机号需11位数字，请重新输入：")
+            return WAIT_PHONE
+        context.user_data['phone'] = phone
+
+        await update.message.reply_text("⏳ 正在尝试登录...")
+        id_card = context.user_data['id']
         ok, msg = await asyncio.wait_for(gx_login_auto(id_card), timeout=30)
-    except asyncio.TimeoutError:
-        await update.message.reply_text("❌ 登录超时，请稍后重试。")
-        context.user_data.clear()
-        return ConversationHandler.END
-    if ok:
-        name = context.user_data['name']
-        result = await gx_query_photo(name, id_card)
-        if result and result.get("statusCode")==200:
-            data = result.get("data", {})
-            item2 = data.get("item2", {})
-            info = f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
-            photo = await gx_download_photo(data.get("item1"))
-            await update.message.reply_text(f"✅ 查询成功！\n{info}")
-            if photo:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo))
-        else:
-            await update.message.reply_text("❌ 查询失败，请检查信息")
-        context.user_data.clear()
-        return ConversationHandler.END
-    else:
-        if "未注册" in msg or "不存在" in msg:
-            await update.message.reply_text("ℹ️ 账号未注册，准备注册。正在获取图形验证码...")
-            ok, img, uuid = await gx_get_captcha()
-            if ok:
-                context.user_data['uuid'] = uuid
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img), caption="请输入图形验证码（不区分大小写）：")
-                return WAIT_CAPTCHA
+        if ok:
+            name = context.user_data['name']
+            result = await gx_query_photo(name, id_card)
+            if result and result.get("statusCode")==200:
+                data = result.get("data", {})
+                item2 = data.get("item2", {})
+                info = f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
+                photo = await gx_download_photo(data.get("item1"))
+                await update.message.reply_text(f"✅ 查询成功！\n{info}")
+                if photo:
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo))
             else:
-                manual_msg = (
-                    "❌ 自动获取验证码失败（可能网络限制）。\n"
-                    "请手动在浏览器中打开以下网址查看验证码：\n"
-                    "`http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode`\n"
-                    "然后在此输入验证码（不区分大小写）："
-                )
-                await update.message.reply_text(manual_msg, parse_mode="Markdown")
-                context.user_data['uuid'] = None
-                return WAIT_CAPTCHA
-        else:
-            await update.message.reply_text(f"❌ 登录失败：{msg}")
+                await update.message.reply_text("❌ 查询失败，请检查信息")
             context.user_data.clear()
             return ConversationHandler.END
+        else:
+            if "未注册" in msg or "不存在" in msg:
+                await update.message.reply_text("ℹ️ 账号未注册，准备注册。正在获取图形验证码...")
+                ok2, img, uuid = await gx_get_captcha()
+                if ok2:
+                    context.user_data['uuid'] = uuid
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img), caption="请输入图形验证码（不区分大小写）：")
+                    return WAIT_CAPTCHA
+                else:
+                    manual_msg = (
+                        "❌ 自动获取验证码失败（可能网络限制）。\n"
+                        "请手动在浏览器中打开以下网址查看验证码：\n"
+                        "`http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode`\n"
+                        "然后在此输入验证码（不区分大小写）："
+                    )
+                    await update.message.reply_text(manual_msg, parse_mode="Markdown")
+                    context.user_data['uuid'] = None
+                    return WAIT_CAPTCHA
+            else:
+                await update.message.reply_text(f"❌ 登录失败：{msg}")
+                context.user_data.clear()
+                return ConversationHandler.END
+    except asyncio.TimeoutError:
+        await update.message.reply_text("❌ 操作超时（超过30秒），请稍后重试。")
+        context.user_data.clear()
+        return ConversationHandler.END
+    except Exception as e:
+        await update.message.reply_text(f"❌ 发生异常：{e}\n请稍后重试。")
+        context.user_data.clear()
+        return ConversationHandler.END
 
 async def gx_captcha(update, context):
     captcha = update.message.text.strip().upper()
@@ -434,7 +441,7 @@ def main():
         fallbacks=[CommandHandler('start', start)]
     )
     app.add_handler(conv)
-    print("===== Bot is ready (最终版) =====")
+    print("===== Bot is ready (最终修复版) =====")
     app.run_polling()
 
 if __name__ == '__main__':
