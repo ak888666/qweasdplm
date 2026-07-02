@@ -1,5 +1,5 @@
 import sys
-print("===== Bot starting (广西查询版) =====")
+print("===== Bot starting, Python version:", sys.version)
 
 import asyncio,io,re,time,json,urllib.parse,base64,os,requests
 from typing import Optional
@@ -10,7 +10,11 @@ from telegram.ext import Application,CommandHandler,MessageHandler,filters,Conte
 # ==================== 配置 ====================
 BOT_TOKEN="5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"
 PASSWORD="268428."
+SMS_USERNAME="8c44166a5730186802cb1c949446e892df74413c11e12fecbceb74f3c16be27c"
+SMS_PASSWORD="8c44166a5730186875a697beb684bf7c8cfd51f49c8bf11d5921060810d0571c"
+SMS_PROJECT_ID="99593"
 BASE_URL="http://www.gxdlys.com"
+SMS_API_URL="http://api.haozhuma.com"
 print("Config loaded.")
 
 # ==================== SM4 加密 ====================
@@ -25,7 +29,6 @@ def sm4_calci_rk(ka): bb=sm4_sbox(ka); return bb^rotl(bb,13)^rotl(bb,23)
 def sm4_f(x0,x1,x2,x3,rk): return x0^sm4_lt(x1^x2^x3^rk)
 def pkcs7_pad(data,block_size=16): pad_len=block_size-(len(data)%block_size); return data+bytes([pad_len])*pad_len
 def sm4_encrypt_ecb(plain_text):
-    if not plain_text: return ""
     data=plain_text.encode('utf-8'); padded=pkcs7_pad(data,16); key_bytes=SM4_KEY.encode('utf-8'); mk=[0]*4
     for i in range(4): mk[i]=(key_bytes[i*4]<<24)|(key_bytes[i*4+1]<<16)|(key_bytes[i*4+2]<<8)|key_bytes[i*4+3]
     k=[0]*36
@@ -42,119 +45,271 @@ def sm4_encrypt_ecb(plain_text):
             val=x[35-i]; out[i*4]=(val>>24)&0xFF; out[i*4+1]=(val>>16)&0xFF; out[i*4+2]=(val>>8)&0xFF; out[i*4+3]=val&0xFF
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
+print("SM4 ready.")
 
 # ==================== 会话 ====================
 session = requests.Session()
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
+    "Host": "www.gxdlys.com",
+    "Accept": "application/json, text/javascript, */*; q=0.01"
+}
+print("Session created.")
+
+# ==================== 预热 ====================
+def warm_up():
+    try:
+        session.get(BASE_URL, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=10)
+        time.sleep(1)
+        print("[预热] 成功访问首页")
+    except Exception as e:
+        print(f"[预热] 警告: {e}")
+
+# ==================== 接码平台 ====================
+def sms_login():
+    try:
+        r=requests.get(f"{SMS_API_URL}/sms/",params={'api':'login','user':SMS_USERNAME,'pass':SMS_PASSWORD},timeout=30)
+        res=r.json()
+        if str(res.get('code'))=='0': return res.get("token")
+    except: pass
+    return None
+
+def get_phone(token):
+    try:
+        r=requests.get(f"{SMS_API_URL}/sms/",params={'api':'getPhone','token':token,'sid':SMS_PROJECT_ID},timeout=30)
+        res=r.json()
+        if str(res.get('code'))=='0': return res.get("phone")
+    except: pass
+    return None
+
+def get_sms(token,phone):
+    for _ in range(15):
+        try:
+            r=requests.get(f"{SMS_API_URL}/sms/",params={'api':'getMessage','token':token,'sid':SMS_PROJECT_ID,'phone':phone},timeout=30)
+            res=r.json()
+            if str(res.get('code'))=='0' and res.get("yzm"): return res.get("yzm")
+        except: pass
+        time.sleep(5)
+    return None
+
+# ==================== 获取验证码（返回详细错误）====================
+def get_captcha():
+    warm_up()
+    for attempt in range(5):
+        try:
+            print(f"[验证码] 第 {attempt+1} 次尝试...")
+            r = session.get(
+                f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode",
+                headers=HEADERS,
+                timeout=15
+            )
+            print(f"[验证码] 状态码: {r.status_code}")
+            if r.status_code != 200:
+                print(f"[验证码] 状态码非200: {r.text[:200]}")
+                time.sleep(2)
+                continue
+            data = r.json()
+            print(f"[验证码] 响应: {data}")
+            if data.get("statusCode") != 200:
+                print(f"[验证码] statusCode错误: {data.get('info')}")
+                time.sleep(2)
+                continue
+            img_b64 = data.get("data", {}).get("img")
+            uuid = data.get("data", {}).get("uuid")
+            if not img_b64 or not uuid:
+                print("[验证码] 缺少img或uuid")
+                time.sleep(2)
+                continue
+            img_data = base64.b64decode(img_b64)
+            print("[验证码] 获取成功")
+            return img_data, uuid, None
+        except Exception as e:
+            print(f"[验证码] 异常: {e}")
+            time.sleep(2)
+    # 所有尝试失败，返回详细错误信息
+    error_msg = f"获取验证码失败：尝试5次均失败。请检查网络或目标网站是否可用。"
+    return None, None, error_msg
+
+# ==================== 发送短信、注册、登录、查询 ====================
+def send_sms(phone,captcha,uuid):
+    data={"phoneId":phone,"type":"10001","IsEncryptPhoneId":"false","verifyCode":captcha,"uuid":uuid}
+    try:
+        r=session.post(f"{BASE_URL}/System/SmsService/PostVerifyCode",data=data,headers=HEADERS,timeout=60)
+        return r.status_code==200 and r.json().get("statusCode")==200
+    except: return False
+
+def register(phone,sms_code,captcha_code,real_name,id_card):
+    data={"zipArea":"","userType":"-1","wechatUid":"","realName":real_name,"iDCard":id_card,"loginName":id_card,"password":PASSWORD,"idcardImg1Url":"218,8a785f252c8518","idcardImg2Url":"216,8a7860c46589f3","idcardImg3Url":"214,8a78664776227f","idcardImg4Url":"","ownerId":"","tel":phone,"isTelEncrypted":"false","validCode":sms_code,"verifyCode":captcha_code}
+    try:
+        r=session.post(f"{BASE_URL}/Wechat/User/RegistAdd",data=data,headers=HEADERS,timeout=60)
+        return r.status_code==200 and r.json().get("statusCode")==200
+    except: return False
 
 def login(id_card):
-    if not id_card: return False, "身份证为空"
+    enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card)); enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
+    data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+    headers=HEADERS.copy()
+    headers["Referer"]="http://www.gxdlys.com/Wechat/Home/Login"
+    headers["Host"]="www.gxdlys.com"
     try:
-        enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
-        enc_pwd = urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
-        data = f"loginName={enc_login}&password={enc_pwd}&wechatUid="
-        headers = HEADERS.copy()
-        headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
-        r = session.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
-        if r.status_code == 200:
-            res = r.json()
-            if res.get("statusCode") == 200:
-                return True, None
-            else:
-                return False, res.get("info", "未知错误")
-    except Exception as e:
-        return False, f"异常: {e}"
-    return False, "登录失败"
+        r=session.post("http://www.gxdlys.com/Wechat/Home/PostLogin",headers=headers,data=data,timeout=60)
+        if r.status_code==200:
+            res=r.json()
+            if res.get("statusCode")==200: return True,None
+            else: return False,res.get("info","")
+    except: pass
+    return False,"异常"
 
-def query_photo(name, id_card):
-    if not name or not id_card:
-        return None
+def query_id_photo(name,id_card):
     try:
-        encoded_name = urllib.parse.quote(name)
-        url = f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
-        headers = HEADERS.copy()
-        headers["Referer"] = "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
-        r = session.get(url, headers=headers, timeout=60)
-        if r.status_code == 200:
-            return r.json()
-    except Exception as e:
-        print(f"查询异常: {e}")
+        encoded_name=urllib.parse.quote(name)
+        url=f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
+        headers=HEADERS.copy()
+        headers["Referer"]="http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
+        headers["Host"]="www.gxdlys.com"
+        r=session.get(url,headers=headers,timeout=60)
+        if r.status_code==200: return r.json()
+    except: pass
     return None
 
 def download_photo(file_id):
-    if not file_id:
-        return None
     try:
-        r = session.get(f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}", timeout=60)
-        if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
-            return r.content
-    except Exception as e:
-        print(f"下载异常: {e}")
+        r=session.get(f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}",timeout=60)
+        if r.status_code==200 and 'image' in r.headers.get('Content-Type',''): return r.content
+    except: pass
     return None
 
-# ==================== 查询流程 ====================
-async def process_query(update, context, name, id_card):
+# ==================== 核心流程 ====================
+async def process_and_reply(update, context, real_name, id_card):
     try:
         ok, msg = login(id_card)
-        if not ok:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ 登录失败: {msg}")
-            return
-        
-        result = query_photo(name, id_card)
-        if result and result.get("statusCode") == 200:
-            data = result.get("data", {})
-            item2 = data.get("item2", {})
-            info = f"姓名：{item2.get('xm', '')}\n身份证：{item2.get('gmsfhm', '')}\n民族：{item2.get('mz', '')}\n有效期：{item2.get('uL_FROM_DATE', '')} 至 {item2.get('uL_END_DATE', '')}"
-            photo_bytes = download_photo(data.get("item1"))
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ 查询成功！\n{info}")
-            if photo_bytes:
-                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo_bytes))
+        if ok:
+            result = query_id_photo(real_name, id_card)
+            if result and result.get("statusCode")==200:
+                data=result.get("data",{})
+                item2=data.get("item2",{})
+                info=f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
+                photo_bytes=download_photo(data.get("item1")) if data.get("item1") else None
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ 成功！\n{info}")
+                if photo_bytes:
+                    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo_bytes))
+                return
+            else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 查询失败")
+                return
+
+        if "未注册" in msg or "不存在" in msg:
+            token = sms_login()
+            if not token:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 接码平台登录失败")
+                return
+            phone = get_phone(token)
+            if not phone:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取手机号失败")
+                return
+
+            img_data, uuid, error = get_captcha()
+            if error:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ {error}")
+                return
+            if uuid is None:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 获取验证码失败，请稍后重试")
+                return
+
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="📷 请查看下方验证码图片，输入字母数字组合（不区分大小写）")
+            try:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img_data), caption="输入验证码（回复此消息）")
+            except Exception as e:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 发送图片失败: {e}")
+                return
+
+            def check(msg):
+                return msg.text and msg.chat.id == update.effective_chat.id
+            try:
+                user_msg = await context.bot.wait_for("message", check=check, timeout=60)
+                captcha = user_msg.text.strip().upper()
+            except asyncio.TimeoutError:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="⏰ 输入超时，请重新 /query")
+                return
+
+            if not captcha:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 未获取到验证码")
+                return
+
+            if not send_sms(phone, captcha, uuid):
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信发送失败")
+                return
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="📨 短信已发送，正在自动获取验证码...")
+
+            sms_code = get_sms(token, phone)
+            if not sms_code:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 短信验证码获取失败")
+                return
+
+            if not register(phone, sms_code, captcha, real_name, id_card):
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册失败")
+                return
+
+            ok2,_ = login(id_card)
+            if ok2:
+                result = query_id_photo(real_name, id_card)
+                if result and result.get("statusCode")==200:
+                    data=result.get("data",{})
+                    item2=data.get("item2",{})
+                    info=f"姓名：{item2.get('xm','')}\n身份证：{item2.get('gmsfhm','')}\n民族：{item2.get('mz','')}\n有效期：{item2.get('uL_FROM_DATE','')} 至 {item2.get('uL_END_DATE','')}"
+                    photo_bytes=download_photo(data.get("item1")) if data.get("item1") else None
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ 注册成功！\n{info}")
+                    if photo_bytes:
+                        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(photo_bytes))
+                else:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册后查询失败")
+            else:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 注册后登录失败")
         else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ 查询失败，请确认姓名和身份证是否正确")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ {msg}")
     except Exception as e:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 异常: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ 异常：{e}")
+        print(f"异常: {e}")
     finally:
         context.user_data.clear()
 
-# ==================== Telegram 命令 ====================
+# ==================== Telegram 对话 ====================
 WAITING_NAME, WAITING_IDCARD = range(2)
 
-async def start(update, context):
-    await update.message.reply_text("👋 发送 /query 开始查询广西道路运输信息")
+async def start(update,context):
+    await update.message.reply_text("👋 发送 /query 开始查询")
 
-async def query(update, context):
+async def query(update,context):
     await update.message.reply_text("请输入姓名：")
     return WAITING_NAME
 
-async def receive_name(update, context):
-    context.user_data['real_name'] = update.message.text.strip()
+async def receive_name(update,context):
+    context.user_data['real_name']=update.message.text.strip()
     await update.message.reply_text("请输入身份证号码：")
     return WAITING_IDCARD
 
-async def receive_idcard(update, context):
-    name = context.user_data.get('real_name')
-    id_card = update.message.text.strip()
-    if not name:
+async def receive_idcard(update,context):
+    real_name=context.user_data.get('real_name')
+    id_card=update.message.text.strip()
+    if not real_name:
         await update.message.reply_text("请先输入姓名")
         return ConversationHandler.END
     await update.message.reply_text("⏳ 查询中，约 1~2 分钟...")
-    asyncio.create_task(process_query(update, context, name, id_card))
+    asyncio.create_task(process_and_reply(update, context, real_name, id_card))
     return ConversationHandler.END
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    conv = ConversationHandler(
-        entry_points=[CommandHandler('query', query)],
-        states={
-            WAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
-            WAITING_IDCARD: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idcard)]
-        },
-        fallbacks=[CommandHandler('start', start)]
-    )
+    app=Application.builder().token(BOT_TOKEN).build()
+    conv=ConversationHandler(entry_points=[CommandHandler('query',query)],
+        states={WAITING_NAME:[MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+                WAITING_IDCARD:[MessageHandler(filters.TEXT & ~filters.COMMAND, receive_idcard)]},
+        fallbacks=[CommandHandler('start',start)])
     app.add_handler(conv)
-    app.add_handler(CommandHandler('start', start))
-    print("===== Bot is ready =====")
+    app.add_handler(CommandHandler('start',start))
+    print("===== Bot is ready and polling...")
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__=='__main__':
     main()
