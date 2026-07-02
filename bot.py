@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (双功能版 - 基于您提供的完整脚本) =====")
+print("===== Bot starting (双功能版 - 已修复限制访问) =====")
 
 import asyncio
 import io
@@ -24,13 +24,12 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 BOT_TOKEN = "5849383582:AAHIfKvl2O3buRgiIq4rwtC4b95KsP3BfS4"  # 您的 Bot Token
 
 # -------------------- 广西配置（直接使用您提供的脚本中的值，不修改）--------------------
-# 以下所有配置均来自您最后发来的 manual 脚本，原封不动
 BASE_URL = "http://www.gxdlys.com"
-PASSWORD = "268428."   # 与您的脚本一致
+PASSWORD = "268428."
 
 # -------------------- 海南配置（与之前一致，如未填写则保持占位符）--------------------
 HAINAN_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",          # 如果您之前填过，这里就是真实值；否则就是占位符
+    "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
     "SESSION": "REPLACE_SESSION_HERE",
     "SERVERID": "REPLACE_SERVERID_HERE",
@@ -38,7 +37,7 @@ HAINAN_COOKIES = {
 HAINAN_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
 
 # ============================================================================
-#  第二部分：SM4 加密（与您的脚本完全一致，不做任何修改）
+#  第二部分：SM4 加密（与您的脚本完全一致）
 # ============================================================================
 SM4_KEY = "CatsPK0WWWRRhjkw"
 SboxTable = [
@@ -131,7 +130,7 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
     return base64.b64encode(result).decode('utf-8')
 
 # ============================================================================
-#  第三部分：广西手动脚本的全部函数（原样复制，不修改任何配置）
+#  第三部分：广西手动脚本的全部函数（含修复）
 # ============================================================================
 session_gx = requests.Session()
 HEADERS_GX = {
@@ -142,6 +141,7 @@ HEADERS_GX = {
     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     "Connection": "keep-alive",
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
+    "Host": "www.gxdlys.com"
 }
 
 def gx_login_auto(id_card):
@@ -154,7 +154,6 @@ def gx_login_auto(id_card):
         headers = HEADERS_GX.copy()
         headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
         headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
-        headers["Host"] = "www.gxdlys.com"
         r = session_gx.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
         if r.status_code == 200:
             res = r.json()
@@ -172,7 +171,6 @@ def gx_query_photo(name, id_card):
         url = f"{BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
         headers = HEADERS_GX.copy()
         headers["Referer"] = "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1"
-        headers["Host"] = "www.gxdlys.com"
         r = session_gx.get(url, headers=headers, timeout=60)
         if r.status_code == 200:
             return r.json()
@@ -193,7 +191,6 @@ def gx_download_photo(file_id):
     return None
 
 def gx_login_manual(id_card, password):
-    """手动登录（用于注册后登录）"""
     try:
         enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
         enc_pwd = urllib.parse.quote(sm4_encrypt_ecb(password))
@@ -201,7 +198,6 @@ def gx_login_manual(id_card, password):
         headers = HEADERS_GX.copy()
         headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
         headers["Referer"] = "http://www.gxdlys.com/Wechat/Home/Login"
-        headers["Host"] = "www.gxdlys.com"
         r = session_gx.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=headers, data=data, timeout=60)
         if r.status_code == 200:
             res = r.json()
@@ -285,7 +281,13 @@ def gx_register(phone, sms_code, captcha_code, real_name, id_card):
         return False, f"异常: {e}"
 
 def gx_get_captcha():
+    """改进版：先访问首页，再获取验证码"""
     try:
+        # 1. 先请求首页，建立会话
+        session_gx.get(BASE_URL, headers=HEADERS_GX, timeout=10)
+        time.sleep(0.5)  # 短暂延时，模拟人类
+
+        # 2. 获取验证码
         r = session_gx.get(f"{BASE_URL}/Wechat/FaceDetect/GetVerifyCode", headers=HEADERS_GX, timeout=10)
         if r.status_code == 200:
             data = r.json()
@@ -302,7 +304,7 @@ def gx_get_captcha():
         return False, f"异常: {e}", None
 
 # ============================================================================
-#  第四部分：海南查询功能（与之前一致，保留原有配置）
+#  第四部分：海南查询功能（保持原样）
 # ============================================================================
 def hainan_query(id_card):
     id_card = id_card.strip().upper()
@@ -512,7 +514,6 @@ async def guangxi_manual_sms(update, context):
     ok, msg = gx_register(phone, sms_code, captcha, name, id_card)
     if ok:
         await update.message.reply_text("✅ 注册成功！正在登录查询...")
-        # 登录
         ok2, msg2 = gx_login_manual(id_card, PASSWORD)
         if ok2:
             result = gx_query_photo(name, id_card)
@@ -568,7 +569,7 @@ def main():
     )
     app.add_handler(conv_manual)
 
-    print("===== Bot is ready (基于您提供的完整脚本) =====")
+    print("===== Bot is ready (修复限制访问) =====")
     app.run_polling()
 
 if __name__ == '__main__':
