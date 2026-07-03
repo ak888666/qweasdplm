@@ -1,52 +1,60 @@
 #!/usr/bin/env python3
-import sys
-print("===== Bot starting (海南真实查询版) =====")
-
-import asyncio
-import io
+import requests
+import json
 import os
 import time
-import json
-import requests
 import urllib3
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+import sys
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ============================================================================
-#  从环境变量读取配置（GitHub Secrets 会注入为环境变量）
-# ============================================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    print("❌ 错误: 未设置 BOT_TOKEN 环境变量")
-    sys.exit(1)
-
+# ---------- 所有敏感信息均从环境变量读取 ----------
 BASE_COOKIES = {
-    "cna": os.getenv("CNA", ""),
-    "JSESSIONID": os.getenv("JSESSIONID", ""),
-    "SESSION": os.getenv("SESSION", ""),
-    "SERVERID": os.getenv("SERVERID", ""),
+    "cna": os.environ.get("COOKIE_CNA", ""),
+    "JSESSIONID": os.environ.get("COOKIE_JSESSIONID", ""),
+    "SESSION": os.environ.get("COOKIE_SESSION", ""),
+    "SERVERID": os.environ.get("COOKIE_SERVERID", ""),
 }
-ZWFW_TOKEN = os.getenv("ZWFW_TOKEN", "")
+ZWFW_TOKEN = os.environ.get("ZWFW_TOKEN", "")
+ID_CARD = os.environ.get("ID_CARD", "").strip()
+FIXED_NAME = os.environ.get("FIXED_NAME", "刘德华")   # 默认值，也可从环境变量定制
+SAVE_FOLDER = "output"
+RETRY_TIMES = 3
 
-# 检查必填项
-missing_cookies = [k for k, v in BASE_COOKIES.items() if not v]
-if missing_cookies:
-    print(f"❌ 错误: 缺少 Cookie 值: {', '.join(missing_cookies)}")
-    sys.exit(1)
-if not ZWFW_TOKEN:
-    print("❌ 错误: 缺少 ZWFW_TOKEN 环境变量")
-    sys.exit(1)
+# Telegram 配置
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 
-# 其他固定配置
-FIXED_NAME = "刘德华"          # 可改为环境变量
-SAVE_FOLDER = "temp_files"
-RETRY_TIMES = 5
+# ---------- 配置完整性检查 ----------
+def check_config():
+    errors = []
+    for key, value in BASE_COOKIES.items():
+        if not value:
+            errors.append(f"缺少环境变量 COOKIE_{key.upper()}")
+    if not ZWFW_TOKEN:
+        errors.append("缺少 ZWFW_TOKEN")
+    if not ID_CARD:
+        errors.append("缺少 ID_CARD（要查询的身份证号）")
+    if not TG_BOT_TOKEN:
+        errors.append("缺少 TG_BOT_TOKEN")
+    if not TG_CHAT_ID:
+        errors.append("缺少 TG_CHAT_ID")
+    if errors:
+        print("❌ 配置错误:")
+        for e in errors:
+            print(f"  - {e}")
+        return False
+    return True
 
-# ============================================================================
-#  请求头（自动使用 ZWFW_TOKEN）
-# ============================================================================
+# ---------- Telegram 通知 ----------
+def send_tg_message(text):
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text}, timeout=10)
+    except Exception as e:
+        print(f"TG 发送失败: {e}")
+
+# ---------- 查询核心逻辑 ----------
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -66,7 +74,6 @@ HEADERS1 = {
     "Accept-Encoding": "gzip, deflate, br, zstd",
     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 }
-
 HEADERS2 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -84,18 +91,7 @@ HEADERS2 = {
     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 }
 
-# ============================================================================
-#  核心查询函数
-# ============================================================================
-def query_id_card(id_card):
-    id_card = id_card.strip().upper()
-    if len(id_card) != 18:
-        return False, "身份证号必须为18位"
-    if not id_card[:17].isdigit():
-        return False, "前17位必须为数字"
-    if id_card[17] not in '0123456789X':
-        return False, "最后一位必须是数字或X"
-
+def query():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
 
@@ -117,94 +113,56 @@ def query_id_card(id_card):
             "ztmc": FIXED_NAME,
             "zzbh": "",
             "dzzz_name": "随便起个名",
-            "cardid": id_card,
+            "cardid": ID_CARD,
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"   # 如过期需从抓包更新
+        "userId": "1547878749006024704"   # 注意：此值可能需要从最新抓包更新
     }
 
-    for attempt in range(RETRY_TIMES):
+    for i in range(RETRY_TIMES):
         try:
             res1 = session.post(url1, headers=HEADERS1, json=data, timeout=30)
             result1 = res1.json()
         except Exception as e:
-            print(f"[{attempt+1}/{RETRY_TIMES}] 请求异常: {e}")
+            msg = f"[{i+1}/{RETRY_TIMES}] 请求异常: {e}"
+            print(msg)
             time.sleep(2)
             continue
 
-        print(f"[{attempt+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
+        print(f"[{i+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
 
         if result1.get("code") == "1":
             try:
                 attachment_id = result1["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
                 url2 = f"https://zwfw.dn.haikou.gov.cn/rest/attachment/{attachment_id}"
                 res2 = session.get(url2, headers=HEADERS2, timeout=30)
-                if res2.status_code == 200:
-                    return True, res2.content
-                else:
-                    return False, f"下载附件失败，HTTP {res2.status_code}"
+                filename = f"{ID_CARD}.pdf"
+                filepath = os.path.join(SAVE_FOLDER, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(res2.content)
+                return True, f"✅ 查询成功！文件已保存: {filepath}"
             except (KeyError, IndexError, AttributeError) as e:
                 return False, f"解析下载数据失败: {e}, 返回内容: {result1}"
         else:
             msg = result1.get('message', '未知错误')
-            print(f"[{attempt+1}/{RETRY_TIMES}] 查询失败: {msg}")
+            if 'resultDatas' in result1:
+                detail = result1['resultDatas']
+                print(f"详细错误: {detail}")
+            print(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
             time.sleep(2)
 
-    return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
+    return False, f"连续 {RETRY_TIMES} 次查询均失败,请检查 Cookie/Token 是否有效"
 
-# ============================================================================
-#  Telegram 命令
-# ============================================================================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 可用命令：\n"
-        "/hainansf <身份证号> → 查询海南身份证附件（PDF）\n"
-        "\n示例：/hainansf 460101199001011234"
-    )
-
-async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "❌ 格式错误\n"
-            "正确格式：/hainansf <身份证号>\n"
-            "示例：/hainansf 460101199001011234"
-        )
-        return
-
-    id_card = args[0].strip()
-    if len(id_card) != 18:
-        await update.message.reply_text("❌ 身份证号必须为18位")
-        return
-
-    await update.message.reply_text("⏳ 正在查询海南系统，请稍候...")
-
-    loop = asyncio.get_event_loop()
-    success, result = await loop.run_in_executor(None, query_id_card, id_card)
-
-    if success:
-        await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=io.BytesIO(result),
-            filename=f"{id_card}.pdf",
-            caption="✅ 查询成功，附件如下："
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"❌ 查询失败：{result}"
-        )
-
-# ============================================================================
-#  主程序
-# ============================================================================
+# ---------- 主程序 ----------
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('hainansf', hainansf))
-    print("===== Bot is ready (海南真实查询版) =====")
-    app.run_polling()
+    if not check_config():
+        send_tg_message("❌ 配置错误，请检查环境变量。")
+        sys.exit(1)
 
-if __name__ == '__main__':
+    success, msg = query()
+    print(msg)
+    send_tg_message(msg)
+
+if __name__ == "__main__":
     main()
