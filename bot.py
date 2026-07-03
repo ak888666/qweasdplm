@@ -233,9 +233,9 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
 # ========== Telegram 命令（不变） ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 可用命令：\n"
-        "/hainansf <身份证号> → 查询海南委托书（PDF）\n"
-        "/genid → 生成身份证图片和PDF（交互式）\n"
+        " 小宇命令"
+        "/hainansf 加空格+身份证号 → 查询海南头（PDF）"
+        "/sfz → 加工生成身份证图片和PDF"
         "/cancel → 取消当前操作"
     )
 
