@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (双功能完整版-自动去白底) =====")
+print("===== Bot starting (双功能完整版-命令改为sfz) =====")
 
 import asyncio
 import io
@@ -74,8 +74,7 @@ HEADERS2 = {
 }
 
 def query_id_card_sync(id_card):
-    # 同之前，省略（与上一版完全一致）
-    # 为保证完整性，这里保留完整函数（可从上一版复制）
+    # 与之前完全一致，省略中间代码（保持完整）
     id_card = id_card.strip().upper()
     if len(id_card) != 18:
         return False, "身份证号必须为18位"
@@ -134,18 +133,16 @@ def query_id_card_sync(id_card):
             time.sleep(2)
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ========== 生成功能（新增去白底） ==========
+# ========== 生成功能（含去白底） ==========
 def remove_white_background(img, threshold=240):
-    """将图片中白色背景转为透明，threshold 为阈值，RGB各分量大于此值视为白色"""
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
     data = img.getdata()
     new_data = []
     for item in data:
         r, g, b, a = item
-        # 如果 RGB 均大于阈值，且 alpha 不为0
         if r > threshold and g > threshold and b > threshold and a != 0:
-            new_data.append((r, g, b, 0))  # 完全透明
+            new_data.append((r, g, b, 0))
         else:
             new_data.append(item)
     img.putdata(new_data)
@@ -203,18 +200,15 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     draw.text((1050, 2750), issuing_authority, font=other_font, fill='black')
     draw.text((1050, 2895), expiration_date, font=other_font, fill='black')
 
-    # 加载用户照片并去白底
     photo = Image.open(user_photo_path).convert("RGBA")
-    photo = remove_white_background(photo, threshold=240)   # 新增去白底
+    photo = remove_white_background(photo, threshold=240)
     photo = photo.resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
 
-    # 保存图片到内存
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
 
-    # 生成 PDF（使用临时文件）
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
         tmp_img_path = tmp_img.name
         template.save(tmp_img_path, format='PNG')
@@ -230,16 +224,17 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
 
     return img_bytes, pdf_bytes
 
-# ========== Telegram 命令（不变） ==========
+# ========== Telegram 命令（已修改命令为 /sfz） ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        " 小宇命令"
-        "/hainansf 加空格+身份证号 → 查询海南头（PDF）"
-        "/sfz → 加工生成身份证图片和PDF"
+        "👋 可用命令：\n"
+        "/hainansf +空格+身份证号 → 查询海南头（PDF）\n"
+        "/sfz → 生成加工身份证图片和PDF\n"   # 修改了提示
         "/cancel → 取消当前操作"
     )
 
 async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 不变
     args = context.args
     if not args:
         await update.message.reply_text("❌ 格式错误\n正确格式：/hainansf <身份证号>")
@@ -266,7 +261,7 @@ async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 NAME, ID_NUMBER, NATION, ADDRESS, EXPIRY, PHOTO = range(6)
 
-async def genid_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):   # 改名
     await update.message.reply_text("📝 开始生成身份证，请输入姓名：")
     return NAME
 
@@ -315,7 +310,7 @@ async def genid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     address = context.user_data.get('address')
     expiry = context.user_data.get('expiry')
     if not all([name, id_number, nation, address, expiry]):
-        await update.message.reply_text("信息不完整，请重新 /genid")
+        await update.message.reply_text("信息不完整，请重新 /sfz")
         return ConversationHandler.END
 
     await update.message.reply_text("⏳ 生成中...")
@@ -339,7 +334,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ========== 主程序（带6小时自动退出） ==========
+# ========== 主程序 ==========
 async def main():
     RUN_DURATION_SECONDS = 350 * 60
     start_time = asyncio.get_event_loop().time()
@@ -350,7 +345,7 @@ async def main():
     app.add_handler(CommandHandler('cancel', cancel))
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler('genid', genid_start)],
+        entry_points=[CommandHandler('sfz', sfz_start)],   # 修改入口命令为 sfz
         states={
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_name)],
             ID_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_id)],
@@ -363,7 +358,7 @@ async def main():
     )
     app.add_handler(conv)
 
-    print("🤖 机器人已启动")
+    print("🤖 机器人已启动（命令：/sfz）")
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
