@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (双功能完整版-命令改为sfz) =====")
+print("===== Bot starting (三功能完整版) =====")
 
 import asyncio
 import io
@@ -35,7 +35,9 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ========== 查询功能（保持不变） ==========
+# ====================================================================
+# 1. 查询功能（/hainansf）
+# ====================================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -74,7 +76,6 @@ HEADERS2 = {
 }
 
 def query_id_card_sync(id_card):
-    # 与之前完全一致，省略中间代码（保持完整）
     id_card = id_card.strip().upper()
     if len(id_card) != 18:
         return False, "身份证号必须为18位"
@@ -133,7 +134,9 @@ def query_id_card_sync(id_card):
             time.sleep(2)
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ========== 生成功能（含去白底） ==========
+# ====================================================================
+# 2. 通用去白底函数
+# ====================================================================
 def remove_white_background(img, threshold=240):
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
@@ -148,6 +151,9 @@ def remove_white_background(img, threshold=240):
     img.putdata(new_data)
     return img
 
+# ====================================================================
+# 3. 生成功能1：/sfz（使用 empty.png 模板）
+# ====================================================================
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -224,17 +230,95 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
 
     return img_bytes, pdf_bytes
 
-# ========== Telegram 命令（已修改命令为 /sfz） ==========
+# ====================================================================
+# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地区地址）
+# ====================================================================
+def load_area_map():
+    area_map = {}
+    file_path = 'plc/地区.txt'
+    if not os.path.exists(file_path):
+        print("警告: 地区文件不存在 (plc/地区.txt)")
+        return area_map
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(',', 1)
+                if len(parts) == 2:
+                    code, name = parts[0].strip(), parts[1].strip()
+                    area_map[code] = name
+        print("已加载地区数据，共 {} 条记录".format(len(area_map)))
+    except Exception as e:
+        print("加载地区文件失败: " + str(e))
+    return area_map
+
+AREA_MAP = load_area_map()
+
+def get_address_from_idcard(id_card):
+    prefix = id_card[:6]
+    return AREA_MAP.get(prefix, None)
+
+def generate_plc_sync(name, id_card, address, avatar_path):
+    if len(id_card) != 18:
+        raise ValueError("身份证号必须为18位")
+    gender = "男" if int(id_card[16]) % 2 == 1 else "女"
+
+    template = Image.open('plc/mb.jpg').convert("RGBA")
+    avatar = Image.open(avatar_path).convert("RGBA")
+    avatar = remove_white_background(avatar, threshold=240)
+    avatar = avatar.resize((416, 500))
+    template.paste(avatar, (26, 333), mask=avatar)
+
+    draw = ImageDraw.Draw(template)
+    font = ImageFont.truetype('plc/10.ttf', 55)
+
+    year = id_card[6:10]
+    month = id_card[10:12]
+    day = id_card[12:14]
+    birth_str = year + "年" + month + "月" + day + "日"
+
+    draw.text((598, 314), name, font=font, fill=(0, 0, 0))
+    draw.text((598, 398), gender, font=font, fill=(0, 0, 0))
+    draw.text((474, 641), id_card, font=font, fill=(0, 0, 0))
+    draw.text((718, 482), birth_str, font=font, fill=(0, 0, 0))
+
+    address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
+    for i, line in enumerate(address_lines):
+        draw.text((473, 782 + i * 60), line, font=font, fill=(0, 0, 0))
+
+    img_bytes = io.BytesIO()
+    template.save(img_bytes, format='PNG')
+    img_bytes.seek(0)
+
+    pdf_bytes = io.BytesIO()
+    c = canvas.Canvas(pdf_bytes, pagesize=A4)
+    w, h = template.size
+    scale = min(A4[0]/w, A4[1]/h)
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        tmp_path = tmp.name
+        template.save(tmp_path, format='PNG')
+    c.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
+    c.save()
+    pdf_bytes.seek(0)
+    os.remove(tmp_path)
+
+    return img_bytes, pdf_bytes
+
+# ====================================================================
+# 5. Telegram 命令处理
+# ====================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 可用命令：\n"
+        "小宇命令：\n"
         "/hainansf +空格+身份证号 → 查询海南头\n"
-        "/sfz → 生成加工双面身份证图片\n"   # 修改了提示
+        "/sfz → 生成加工身份证\n"
+        "/plc → 生成加工（PLC模板自动匹配地址）\n"   # 改成了 /plc
         "/cancel → 取消当前操作"
     )
 
 async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 不变
     args = context.args
     if not args:
         await update.message.reply_text("❌ 格式错误\n正确格式：/hainansf <身份证号>")
@@ -259,68 +343,72 @@ async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"❌ 查询失败：{result}"
         )
 
-NAME, ID_NUMBER, NATION, ADDRESS, EXPIRY, PHOTO = range(6)
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("已取消")
+    context.user_data.clear()
+    return ConversationHandler.END
 
-async def sfz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):   # 改名
-    await update.message.reply_text("📝 开始生成身份证，请输入姓名：")
-    return NAME
+# ===== /sfz 对话 =====
+SFZ_NAME, SFZ_ID, SFZ_NATION, SFZ_ADDR, SFZ_EXPIRY, SFZ_PHOTO = range(6)
 
-async def genid_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📝 开始生成身份证（标准模板），请输入姓名：")
+    return SFZ_NAME
+
+async def sfz_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text.strip()
     await update.message.reply_text("请输入18位身份证号：")
-    return ID_NUMBER
+    return SFZ_ID
 
-async def genid_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     id_card = update.message.text.strip().upper()
     if len(id_card) != 18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         await update.message.reply_text("格式错误，重新输入：")
-        return ID_NUMBER
+        return SFZ_ID
     context.user_data['id_number'] = id_card
     await update.message.reply_text("请输入民族：")
-    return NATION
+    return SFZ_NATION
 
-async def genid_nation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_nation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['nation'] = update.message.text.strip()
     await update.message.reply_text("请输入地址：")
-    return ADDRESS
+    return SFZ_ADDR
 
-async def genid_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['address'] = update.message.text.strip()
     await update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
-    return EXPIRY
+    return SFZ_EXPIRY
 
-async def genid_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['expiry'] = update.message.text.strip()
     await update.message.reply_text("请发送一张本人照片：")
-    return PHOTO
+    return SFZ_PHOTO
 
-async def genid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sfz_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
         await update.message.reply_text("请发送图片。")
-        return PHOTO
+        return SFZ_PHOTO
     photo = update.message.photo[-1]
     file = await photo.get_file()
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
         await file.download_to_drive(tmp.name)
         photo_path = tmp.name
 
-    name = context.user_data.get('name')
-    id_number = context.user_data.get('id_number')
-    nation = context.user_data.get('nation')
-    address = context.user_data.get('address')
-    expiry = context.user_data.get('expiry')
-    if not all([name, id_number, nation, address, expiry]):
+    data = context.user_data
+    if not all(k in data for k in ['name','id_number','nation','address','expiry']):
         await update.message.reply_text("信息不完整，请重新 /sfz")
         return ConversationHandler.END
 
     await update.message.reply_text("⏳ 生成中...")
     loop = asyncio.get_event_loop()
     try:
-        img_bytes, pdf_bytes = await loop.run_in_executor(
-            None, generate_id_card_sync, name, id_number, nation, address, expiry, photo_path
+        img, pdf = await loop.run_in_executor(
+            None, generate_id_card_sync,
+            data['name'], data['id_number'], data['nation'],
+            data['address'], data['expiry'], photo_path
         )
-        await update.message.reply_photo(photo=img_bytes, caption=f"✅ {name} 的身份证")
-        await update.message.reply_document(document=pdf_bytes, filename=f"{name}_身份证.pdf")
+        await update.message.reply_photo(photo=img, caption=f"✅ {data['name']} 的身份证")
+        await update.message.reply_document(document=pdf, filename=f"{data['name']}_身份证.pdf")
     except Exception as e:
         await update.message.reply_text(f"❌ 失败：{e}")
     finally:
@@ -329,12 +417,78 @@ async def genid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("已取消")
-    context.user_data.clear()
+# ===== /plc 对话（原 /plcid，命令改为 /plc）=====
+PLC_NAME, PLC_ID, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 14)
+
+async def plc_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📝 开始生成身份证（PLC模板），请输入姓名：")
+    return PLC_NAME
+
+async def plc_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['name'] = update.message.text.strip()
+    await update.message.reply_text("请输入18位身份证号：")
+    return PLC_ID
+
+async def plc_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    id_card = update.message.text.strip().upper()
+    if len(id_card) != 18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
+        await update.message.reply_text("格式错误，重新输入：")
+        return PLC_ID
+    context.user_data['id_number'] = id_card
+
+    address = get_address_from_idcard(id_card)
+    if address:
+        context.user_data['address'] = address
+        await update.message.reply_text(f"✅ 已自动匹配地址：{address}\n请发送一张本人照片：")
+        return PLC_PHOTO
+    else:
+        await update.message.reply_text("⚠️ 无法自动匹配地址，请手动输入详细地址：")
+        return PLC_ADDR_MANUAL
+
+async def plc_addr_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    address = update.message.text.strip()
+    if not address:
+        await update.message.reply_text("地址不能为空，请重新输入：")
+        return PLC_ADDR_MANUAL
+    context.user_data['address'] = address
+    await update.message.reply_text("请发送一张本人照片：")
+    return PLC_PHOTO
+
+async def plc_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.photo:
+        await update.message.reply_text("请发送图片。")
+        return PLC_PHOTO
+    photo = update.message.photo[-1]
+    file = await photo.get_file()
+    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+        await file.download_to_drive(tmp.name)
+        photo_path = tmp.name
+
+    data = context.user_data
+    if not all(k in data for k in ['name','id_number','address']):
+        await update.message.reply_text("信息不完整，请重新 /plc")
+        return ConversationHandler.END
+
+    await update.message.reply_text("⏳ 生成中...")
+    loop = asyncio.get_event_loop()
+    try:
+        img, pdf = await loop.run_in_executor(
+            None, generate_plc_sync,
+            data['name'], data['id_number'], data['address'], photo_path
+        )
+        await update.message.reply_photo(photo=img, caption=f"✅ {data['name']} 的身份证（PLC模板）")
+        await update.message.reply_document(document=pdf, filename=f"{data['name']}_身份证_PLC.pdf")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 失败：{e}")
+    finally:
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+        context.user_data.clear()
     return ConversationHandler.END
 
-# ========== 主程序 ==========
+# ====================================================================
+# 6. 主程序（带6小时自动退出）
+# ====================================================================
 async def main():
     RUN_DURATION_SECONDS = 350 * 60
     start_time = asyncio.get_event_loop().time()
@@ -344,21 +498,35 @@ async def main():
     app.add_handler(CommandHandler('hainansf', hainansf))
     app.add_handler(CommandHandler('cancel', cancel))
 
-    conv = ConversationHandler(
-        entry_points=[CommandHandler('sfz', sfz_start)],   # 修改入口命令为 sfz
+    # 注册 /sfz 对话
+    conv_sfz = ConversationHandler(
+        entry_points=[CommandHandler('sfz', sfz_start)],
         states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_name)],
-            ID_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_id)],
-            NATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_nation)],
-            ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_address)],
-            EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, genid_expiry)],
-            PHOTO: [MessageHandler(filters.PHOTO, genid_photo)],
+            SFZ_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, sfz_name)],
+            SFZ_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, sfz_id)],
+            SFZ_NATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, sfz_nation)],
+            SFZ_ADDR: [MessageHandler(filters.TEXT & ~filters.COMMAND, sfz_address)],
+            SFZ_EXPIRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, sfz_expiry)],
+            SFZ_PHOTO: [MessageHandler(filters.PHOTO, sfz_photo)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-    app.add_handler(conv)
+    app.add_handler(conv_sfz)
 
-    print("🤖 机器人已启动（命令：/sfz）")
+    # 注册 /plc 对话（原 /plcid，命令改为 /plc）
+    conv_plc = ConversationHandler(
+        entry_points=[CommandHandler('plc', plc_start)],   # 修改为 'plc'
+        states={
+            PLC_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, plc_name)],
+            PLC_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, plc_id)],
+            PLC_ADDR_MANUAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, plc_addr_manual)],
+            PLC_PHOTO: [MessageHandler(filters.PHOTO, plc_photo)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+    app.add_handler(conv_plc)
+
+    print("🤖 机器人已启动（命令：/hainansf, /sfz, /plc）")
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
