@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (双功能完整版-已修复PDF错误) =====")
+print("===== Bot starting (双功能完整版-自动去白底) =====")
 
 import asyncio
 import io
@@ -35,7 +35,7 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ========== 查询功能 ==========
+# ========== 查询功能（保持不变） ==========
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -74,6 +74,8 @@ HEADERS2 = {
 }
 
 def query_id_card_sync(id_card):
+    # 同之前，省略（与上一版完全一致）
+    # 为保证完整性，这里保留完整函数（可从上一版复制）
     id_card = id_card.strip().upper()
     if len(id_card) != 18:
         return False, "身份证号必须为18位"
@@ -81,14 +83,11 @@ def query_id_card_sync(id_card):
         return False, "前17位必须为数字"
     if id_card[17] not in '0123456789X':
         return False, "最后一位必须是数字或X"
-
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
-
     session = requests.Session()
     session.cookies.update(BASE_COOKIES)
     session.verify = False
-
     url1 = "https://zwfw.dn.haikou.gov.cn/rest/materialshare/canShareMaterial"
     data = {
         "itemMaterialId": "1498591712970792960",
@@ -109,7 +108,6 @@ def query_id_card_sync(id_card):
         "itemId": "1047370300041120912",
         "userId": "1547878749006024704"
     }
-
     for attempt in range(RETRY_TIMES):
         try:
             res1 = session.post(url1, headers=HEADERS1, json=data, timeout=30)
@@ -118,9 +116,7 @@ def query_id_card_sync(id_card):
             print(f"[{attempt+1}/{RETRY_TIMES}] 请求异常: {e}")
             time.sleep(2)
             continue
-
         print(f"[{attempt+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
-
         if result1.get("code") == "1":
             try:
                 attachment_id = result1["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
@@ -136,10 +132,25 @@ def query_id_card_sync(id_card):
             msg = result1.get('message', '未知错误')
             print(f"[{attempt+1}/{RETRY_TIMES}] 查询失败: {msg}")
             time.sleep(2)
-
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ========== 生成功能（已修复PDF错误） ==========
+# ========== 生成功能（新增去白底） ==========
+def remove_white_background(img, threshold=240):
+    """将图片中白色背景转为透明，threshold 为阈值，RGB各分量大于此值视为白色"""
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
+    data = img.getdata()
+    new_data = []
+    for item in data:
+        r, g, b, a = item
+        # 如果 RGB 均大于阈值，且 alpha 不为0
+        if r > threshold and g > threshold and b > threshold and a != 0:
+            new_data.append((r, g, b, 0))  # 完全透明
+        else:
+            new_data.append(item)
+    img.putdata(new_data)
+    return img
+
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -192,7 +203,10 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     draw.text((1050, 2750), issuing_authority, font=other_font, fill='black')
     draw.text((1050, 2895), expiration_date, font=other_font, fill='black')
 
-    photo = Image.open(user_photo_path).convert("RGBA").resize((500, 670))
+    # 加载用户照片并去白底
+    photo = Image.open(user_photo_path).convert("RGBA")
+    photo = remove_white_background(photo, threshold=240)   # 新增去白底
+    photo = photo.resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
 
     # 保存图片到内存
@@ -200,7 +214,7 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
 
-    # 生成 PDF：需要先保存为临时文件，因为 reportlab 不能直接从 BytesIO 读取
+    # 生成 PDF（使用临时文件）
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
         tmp_img_path = tmp_img.name
         template.save(tmp_img_path, format='PNG')
@@ -209,17 +223,14 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
     scale = min(A4[0]/w, A4[1]/h)
-    # 使用临时文件路径
     c.drawImage(tmp_img_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
     c.save()
     pdf_bytes.seek(0)
-
-    # 清理临时文件
     os.remove(tmp_img_path)
 
     return img_bytes, pdf_bytes
 
-# ========== Telegram 命令 ==========
+# ========== Telegram 命令（不变） ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 可用命令：\n"
@@ -328,7 +339,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ========== 主程序 ==========
+# ========== 主程序（带6小时自动退出） ==========
 async def main():
     RUN_DURATION_SECONDS = 350 * 60
     start_time = asyncio.get_event_loop().time()
