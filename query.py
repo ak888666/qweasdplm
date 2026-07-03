@@ -8,7 +8,27 @@ import sys
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---------- 所有敏感信息从环境变量读取 ----------
+# ---------- 先打印环境变量诊断（不打印值） ----------
+print("🔍 环境变量检查:")
+env_vars = [
+    "COOKIE_CNA", "COOKIE_JSESSIONID", "COOKIE_SESSION", "COOKIE_SERVERID",
+    "ZWFW_TOKEN", "ID_CARD", "TG_BOT_TOKEN", "TG_CHAT_ID"
+]
+missing = []
+for v in env_vars:
+    if os.environ.get(v):
+        print(f"  ✅ {v} 已设置")
+    else:
+        print(f"  ❌ {v} 未设置")
+        missing.append(v)
+
+if missing:
+    print(f"\n❌ 缺少以下环境变量: {missing}")
+    sys.exit(1)
+else:
+    print("✅ 所有环境变量均已设置，开始执行查询...\n")
+
+# ---------- 从环境变量读取 ----------
 BASE_COOKIES = {
     "cna": os.environ.get("COOKIE_CNA", ""),
     "JSESSIONID": os.environ.get("COOKIE_JSESSIONID", ""),
@@ -24,22 +44,6 @@ RETRY_TIMES = 3
 # Telegram
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
-
-def check_config():
-    errors = []
-    for key, value in BASE_COOKIES.items():
-        if not value:
-            errors.append(f"缺少 COOKIE_{key.upper()}")
-    if not ZWFW_TOKEN:
-        errors.append("缺少 ZWFW_TOKEN")
-    if not ID_CARD:
-        errors.append("缺少 ID_CARD")
-    if not TG_BOT_TOKEN or not TG_CHAT_ID:
-        errors.append("缺少 TG 配置")
-    if errors:
-        print("❌ 配置错误:", errors)
-        return False
-    return True
 
 def send_tg_message(text):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
@@ -148,10 +152,6 @@ def query():
     return False, f"连续 {RETRY_TIMES} 次查询均失败"
 
 def main():
-    if not check_config():
-        send_tg_message("❌ 配置错误，请检查 Secrets")
-        sys.exit(1)
-
     success, msg = query()
     print(msg)
     send_tg_message(msg)
