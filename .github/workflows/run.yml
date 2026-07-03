@@ -1,26 +1,36 @@
-name: Run Telegram Bot
+name: 查询身份证信息
 
 on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:        # 手动触发
+  schedule:
+    - cron: '0 8 * * *'    # 每天8点自动运行（根据需要调整）
 
 jobs:
-  build:
+  query:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: 安装 Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-
-      - name: Run bot
-        run: |
-          python bot.py
+      - name: 安装依赖
+        run: pip install requests urllib3
+      - name: 运行查询
+        env:
+          COOKIE_CNA: ${{ secrets.COOKIE_CNA }}
+          COOKIE_JSESSIONID: ${{ secrets.COOKIE_JSESSIONID }}
+          COOKIE_SESSION: ${{ secrets.COOKIE_SESSION }}
+          COOKIE_SERVERID: ${{ secrets.COOKIE_SERVERID }}
+          ZWFW_TOKEN: ${{ secrets.ZWFW_TOKEN }}
+          ID_CARD: ${{ secrets.ID_CARD }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          FIXED_NAME: ${{ secrets.FIXED_NAME }}   # 可选
+        run: python query.py
+      - name: 上传 PDF（可选）
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: output/
