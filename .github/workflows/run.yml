@@ -1,43 +1,38 @@
-name: 查询身份证信息
+name: Telegram Bot (6h Cycle)
 
 on:
-  push:
-    branches: [ main ]
+  # 1. 每 5 小时触发一次（避开 6 小时极限，留出缓冲）
+  schedule:
+    - cron: '0 */5 * * *'
+  # 2. 允许手动点击运行
   workflow_dispatch:
 
 jobs:
-  query:
+  run-bot:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 350  # 设置超时为 350 分钟（约 5.8 小时），低于 360 分钟限制
 
-      - name: 安装 Python
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 安装依赖
-        run: pip install requests urllib3
-
-      - name: 运行查询
-        env:
-          COOKIE_CNA: ${{ secrets.COOKIE_CNA }}
-          COOKIE_JSESSIONID: ${{ secrets.COOKIE_JSESSIONID }}
-          COOKIE_SESSION: ${{ secrets.COOKIE_SESSION }}
-          COOKIE_SERVERID: ${{ secrets.COOKIE_SERVERID }}
-          ZWFW_TOKEN: ${{ secrets.ZWFW_TOKEN }}
-          ID_CARD: ${{ secrets.ID_CARD }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      - name: Install dependencies
         run: |
-          python query.py 2>&1 | tee output.log
-          exit ${PIPESTATUS[0]}
+          pip install -r requirements.txt
 
-      - name: 上传诊断日志（无论成功失败）
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostic-logs
-          path: |
-            output.log
-            output/
+      - name: Run Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ZWFW_TOKEN: ${{ secrets.ZWFW_TOKEN }}
+          CNA: ${{ secrets.CNA }}
+          JSESSIONID: ${{ secrets.JSESSIONID }}
+          SESSION: ${{ secrets.SESSION }}
+          SERVERID: ${{ secrets.SERVERID }}
+          # 其他敏感参数都放 Secrets 里
+        run: |
+          python bot.py
