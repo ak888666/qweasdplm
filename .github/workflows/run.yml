@@ -1,0 +1,33 @@
+name: Run Telegram Bot
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run bot
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CNA: ${{ secrets.CNA }}
+        JSESSIONID: ${{ secrets.JSESSIONID }}
+        SESSION: ${{ secrets.SESSION }}
+        SERVERID: ${{ secrets.SERVERID }}
+        ZWFW_TOKEN: ${{ secrets.ZWFW_TOKEN }}
+      run: |
+        python bot.py
