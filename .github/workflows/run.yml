@@ -2,10 +2,8 @@ name: 查询身份证信息
 
 on:
   push:
-    branches: [ main ]          # 每次 push 到 main 分支自动触发
-  workflow_dispatch:            # 保留手动触发（在 Actions 页面点按钮）
-  schedule:
-    - cron: '0 8 * * *'        # 每天 8:00 自动运行（可选）
+    branches: [ main ]          # 每次 push 到 main 自动运行
+  workflow_dispatch:            # 也支持手动触发
 
 jobs:
   query:
@@ -19,7 +17,9 @@ jobs:
           python-version: '3.10'
 
       - name: 安装依赖
-        run: pip install requests urllib3
+        run: |
+          pip install --upgrade pip
+          pip install requests urllib3
 
       - name: 运行查询
         env:
@@ -33,7 +33,7 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python query.py
 
-      - name: 上传 PDF（可选）
+      - name: 上传 PDF（如果有）
         if: success()
         uses: actions/upload-artifact@v4
         with:
