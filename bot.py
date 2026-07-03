@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-print("===== Bot starting (双功能完整版) =====")
+print("===== Bot starting (双功能完整版-已修复PDF错误) =====")
 
 import asyncio
 import io
@@ -139,7 +139,7 @@ def query_id_card_sync(id_card):
 
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ========== 生成功能 ==========
+# ========== 生成功能（已修复PDF错误） ==========
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -195,17 +195,27 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     photo = Image.open(user_photo_path).convert("RGBA").resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
 
+    # 保存图片到内存
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
+
+    # 生成 PDF：需要先保存为临时文件，因为 reportlab 不能直接从 BytesIO 读取
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
+        tmp_img_path = tmp_img.name
+        template.save(tmp_img_path, format='PNG')
 
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
     scale = min(A4[0]/w, A4[1]/h)
-    c.drawImage(img_bytes, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
+    # 使用临时文件路径
+    c.drawImage(tmp_img_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
     c.save()
     pdf_bytes.seek(0)
+
+    # 清理临时文件
+    os.remove(tmp_img_path)
 
     return img_bytes, pdf_bytes
 
@@ -318,7 +328,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ========== 主程序（带6小时自动退出） ==========
+# ========== 主程序 ==========
 async def main():
     RUN_DURATION_SECONDS = 350 * 60
     start_time = asyncio.get_event_loop().time()
