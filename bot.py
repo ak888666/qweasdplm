@@ -228,8 +228,8 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 可用命令：\n"
-        "/hainansf +空格+身份证号 → 查询海南头（PDF）\n"
-        "/sfz → 生成加工身份证图片和PDF\n"   # 修改了提示
+        "/hainansf +空格+身份证号 → 查询海南头\n"
+        "/sfz → 生成加工双面身份证图片\n"   # 修改了提示
         "/cancel → 取消当前操作"
     )
 
