@@ -1,16 +1,18 @@
 # bot.py
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import os
+import sys
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # 导入封装好的查询函数
 from query_helper import query_id_card_async
 
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
-
-# 临时存储文件路径，用于清理（可选）
-TEMPORARY_FILES = []
+# 从环境变量读取 Bot Token
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+if not BOT_TOKEN:
+    print("❌ 未设置 BOT_TOKEN 环境变量")
+    sys.exit(1)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -19,17 +21,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_id_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     text = update.message.text.strip().replace(" ", "")
     if len(text) != 18 or not (text[:17].isdigit() and text[-1] in '0123456789Xx'):
         await update.message.reply_text("❌ 请输入有效的 18 位身份证号（最后一位可为 X）")
         return
 
-    # 发送“处理中”提示
     progress_msg = await update.message.reply_text("⏳ 正在查询，请稍候...")
 
     try:
-        # 异步执行查询（会在线程池中运行同步函数）
         success, result_msg = await query_id_card_async(text)
     except Exception as e:
         await progress_msg.edit_text(f"❌ 查询异常: {str(e)}")
@@ -39,14 +38,13 @@ async def handle_id_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await progress_msg.edit_text(f"❌ {result_msg}")
         return
 
-    # 如果成功，result_msg 格式为 "成功! 文件已保存至: 海南/xxxx.pdf"
     # 提取文件路径
     file_path = result_msg.split("文件已保存至: ")[-1].strip()
     if not os.path.exists(file_path):
         await progress_msg.edit_text("❌ 文件生成后丢失，请重试")
         return
 
-    # 发送 PDF 文件
+    # 发送 PDF
     try:
         with open(file_path, 'rb') as f:
             await update.message.reply_document(
@@ -54,23 +52,40 @@ async def handle_id_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 filename=f"{text}.pdf",
                 caption=f"✅ 身份证 {text[:6]}********{text[-4:]} 的委托书"
             )
-        await progress_msg.delete()  # 删除“处理中”消息
+        await progress_msg.delete()
     except Exception as e:
         await progress_msg.edit_text(f"❌ 文件发送失败: {str(e)}")
     finally:
-        # 清理临时文件（可选）
         if os.path.exists(file_path):
             os.remove(file_path)
 
+# ========== 带 6 小时自动退出的主程序 ==========
 async def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    # 设置运行时长：5小时50分钟（350分钟），避开 GitHub 6 小时限制
+    RUN_DURATION_SECONDS = 350 * 60
+    start_time = asyncio.get_event_loop().time()
 
+    app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    # 处理纯文本消息（只处理 18 位数字/X 内容）
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_id_card))
 
     print("🤖 机器人已启动，正在轮询...")
-    await app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    # 循环检查运行时间
+    while True:
+        elapsed = asyncio.get_event_loop().time() - start_time
+        if elapsed >= RUN_DURATION_SECONDS:
+            print("🕒 已运行 5小时50分，主动退出，等待下一次 Actions 触发...")
+            break
+        await asyncio.sleep(60)
+
+    # 优雅关闭
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
