@@ -8,50 +8,60 @@ import sys
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---------- 先打印环境变量诊断（不打印值） ----------
-print("🔍 环境变量检查:")
-env_vars = [
+# ---------- 从环境变量读取配置 ----------
+def get_env_var(name):
+    value = os.environ.get(name, "").strip()
+    if not value:
+        print(f"❌ 环境变量 {name} 未设置或为空")
+        return None
+    return value
+
+# 检查所有必需的变量
+required_vars = [
     "COOKIE_CNA", "COOKIE_JSESSIONID", "COOKIE_SESSION", "COOKIE_SERVERID",
     "ZWFW_TOKEN", "ID_CARD", "TG_BOT_TOKEN", "TG_CHAT_ID"
 ]
 missing = []
-for v in env_vars:
-    if os.environ.get(v):
-        print(f"  ✅ {v} 已设置")
+config = {}
+for var in required_vars:
+    val = get_env_var(var)
+    if val is None:
+        missing.append(var)
     else:
-        print(f"  ❌ {v} 未设置")
-        missing.append(v)
+        config[var] = val
 
 if missing:
-    print(f"\n❌ 缺少以下环境变量: {missing}")
+    print(f"❌ 缺少以下环境变量: {missing}")
     sys.exit(1)
-else:
-    print("✅ 所有环境变量均已设置，开始执行查询...\n")
 
-# ---------- 从环境变量读取 ----------
+# 提取具体值
 BASE_COOKIES = {
-    "cna": os.environ.get("COOKIE_CNA", ""),
-    "JSESSIONID": os.environ.get("COOKIE_JSESSIONID", ""),
-    "SESSION": os.environ.get("COOKIE_SESSION", ""),
-    "SERVERID": os.environ.get("COOKIE_SERVERID", ""),
+    "cna": config["COOKIE_CNA"],
+    "JSESSIONID": config["COOKIE_JSESSIONID"],
+    "SESSION": config["COOKIE_SESSION"],
+    "SERVERID": config["COOKIE_SERVERID"],
 }
-ZWFW_TOKEN = os.environ.get("ZWFW_TOKEN", "")
-ID_CARD = os.environ.get("ID_CARD", "").strip()
+ZWFW_TOKEN = config["ZWFW_TOKEN"]
+ID_CARD = config["ID_CARD"]
+TG_BOT_TOKEN = config["TG_BOT_TOKEN"]
+TG_CHAT_ID = config["TG_CHAT_ID"]
+
 FIXED_NAME = os.environ.get("FIXED_NAME", "刘德华")
 SAVE_FOLDER = "output"
 RETRY_TIMES = 3
 
-# Telegram
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
-TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
+print("✅ 所有环境变量已成功读取，开始查询...")
 
+# ---------- Telegram 通知 ----------
 def send_tg_message(text):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text}, timeout=10)
+        r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text}, timeout=10)
+        print(f"TG 响应: {r.status_code} {r.text}")
     except Exception as e:
         print(f"TG 发送失败: {e}")
 
+# ---------- 查询核心逻辑 ----------
 def query():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
@@ -114,7 +124,7 @@ def query():
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"
+        "userId": "1547878749006024704"   # 可能需要更新
     }
 
     for i in range(RETRY_TIMES):
@@ -151,6 +161,7 @@ def query():
 
     return False, f"连续 {RETRY_TIMES} 次查询均失败"
 
+# ---------- 主程序 ----------
 def main():
     success, msg = query()
     print(msg)
