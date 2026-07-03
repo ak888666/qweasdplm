@@ -2,8 +2,8 @@ name: 查询身份证信息
 
 on:
   push:
-    branches: [ main ]          # 每次 push 到 main 自动运行
-  workflow_dispatch:            # 也支持手动触发
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   query:
@@ -31,11 +31,15 @@ jobs:
           ID_CARD: ${{ secrets.ID_CARD }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python query.py
+        run: |
+          python query.py 2>&1 | tee output.log
+          exit ${PIPESTATUS[0]}
 
-      - name: 上传 PDF（如果有）
-        if: success()
+      - name: 上传诊断日志（无论成功失败）
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: result
-          path: output/
+          name: diagnostic-logs
+          path: |
+            output.log
+            output/
