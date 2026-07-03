@@ -16,12 +16,12 @@ RETRY_TIMES = 3
 
 # 以下四项必须从浏览器抓包获取（替换引号内的值）
 BASE_COOKIES = {
-    "cna": "你的cna值",
-    "JSESSIONID": "你的JSESSIONID值",
-    "SESSION": "你的SESSION值",
-    "SERVERID": "你的SERVERID值",
+    "cna": "REPLACE_CNA_HERE",
+    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
+    "SESSION": "REPLACE_SESSION_HERE",
+    "SERVERID": "REPLACE_SERVERID_HERE",
 }
-ZWFW_TOKEN = "你的zwfw-token值"     # 替换为真实 token
+ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"     # 替换为真实 token
 
 # 用户输入身份证号（交互式输入，所以这里不设默认）
 # ID_CARD 在 main 中由用户输入
