@@ -7,16 +7,18 @@ import requests
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ------------------ 日志重定向（确保所有输出都被捕获）------------------
-log_file = open("output.log", "a", buffering=1)
+# ---------- 立即创建日志文件 ----------
+log_file = open("output.log", "w", buffering=1)
 sys.stdout = log_file
 sys.stderr = log_file
 
-def print_and_log(*args, **kwargs):
+def log(*args, **kwargs):
     print(*args, **kwargs)
     log_file.flush()
 
-# ------------------ 配置读取 ------------------
+log("=== 脚本启动 ===")
+
+# ---------- 检查环境变量 ----------
 def get_env(name):
     val = os.environ.get(name, "").strip()
     if not val:
@@ -37,8 +39,16 @@ for v in required:
         config[v] = val
 
 if missing:
-    print_and_log("❌ 缺少以下环境变量:", missing)
+    log("❌ 缺少以下环境变量:", missing)
+    log("请确保在 Settings -> Secrets 中设置了这些变量")
+    log("=== 脚本终止 ===")
     sys.exit(1)
+
+log("✅ 所有环境变量已读取")
+log(f"ID_CARD: {config['ID_CARD'][:4]}****{config['ID_CARD'][-4:]}")  # 只显示部分
+log(f"TG_CHAT_ID: {config['TG_CHAT_ID']}")
+log(f"COOKIE_CNA: {config['COOKIE_CNA'][:10]}...")
+log(f"ZWFW_TOKEN: {config['ZWFW_TOKEN'][:10]}...")
 
 # 赋值
 BASE_COOKIES = {
@@ -56,18 +66,16 @@ FIXED_NAME = os.environ.get("FIXED_NAME", "刘德华")
 SAVE_FOLDER = "output"
 RETRY_TIMES = 3
 
-print_and_log("✅ 所有环境变量已读取，开始查询...")
-
-# ------------------ Telegram 通知 ------------------
+# ---------- Telegram 通知 ----------
 def send_tg_message(text):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text}, timeout=10)
-        print_and_log(f"TG 响应: {r.status_code} {r.text}")
+        log(f"TG 响应: {r.status_code} {r.text}")
     except Exception as e:
-        print_and_log(f"TG 发送失败: {e}")
+        log(f"TG 发送失败: {e}")
 
-# ------------------ 查询逻辑 ------------------
+# ---------- 查询逻辑 ----------
 def query():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
@@ -138,12 +146,11 @@ def query():
             res1 = session.post(url1, headers=HEADERS1, json=data, timeout=30)
             result1 = res1.json()
         except Exception as e:
-            msg = f"[{i+1}/{RETRY_TIMES}] 请求异常: {e}"
-            print_and_log(msg)
+            log(f"[{i+1}/{RETRY_TIMES}] 请求异常: {e}")
             time.sleep(2)
             continue
 
-        print_and_log(f"[{i+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
+        log(f"[{i+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
 
         if result1.get("code") == "1":
             try:
@@ -161,8 +168,8 @@ def query():
             msg = result1.get('message', '未知错误')
             if 'resultDatas' in result1:
                 detail = result1['resultDatas']
-                print_and_log(f"详细错误: {detail}")
-            print_and_log(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
+                log(f"详细错误: {detail}")
+            log(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
             time.sleep(2)
 
     return False, f"连续 {RETRY_TIMES} 次查询均失败"
@@ -170,15 +177,15 @@ def query():
 def main():
     try:
         success, msg = query()
-        print_and_log(msg)
+        log(msg)
         send_tg_message(msg)
     except Exception as e:
-        print_and_log(f"❌ 未捕获的异常: {e}")
+        log(f"❌ 未捕获的异常: {e}")
         import traceback
         traceback.print_exc(file=sys.stdout)
         sys.exit(1)
+    finally:
+        log_file.close()
 
 if __name__ == "__main__":
     main()
-    # 确保日志文件被刷新
-    log_file.close()
