@@ -1,40 +1,46 @@
 #!/usr/bin/env python3
-import requests
-import json
-import os
-import time
-import urllib3
 import sys
-
+import os
+import json
+import time
+import requests
+import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---------- 从环境变量读取配置 ----------
-def get_env_var(name):
-    value = os.environ.get(name, "").strip()
-    if not value:
-        print(f"❌ 环境变量 {name} 未设置或为空")
-        return None
-    return value
+# ------------------ 日志重定向（确保所有输出都被捕获）------------------
+log_file = open("output.log", "a", buffering=1)
+sys.stdout = log_file
+sys.stderr = log_file
 
-# 检查所有必需的变量
-required_vars = [
+def print_and_log(*args, **kwargs):
+    print(*args, **kwargs)
+    log_file.flush()
+
+# ------------------ 配置读取 ------------------
+def get_env(name):
+    val = os.environ.get(name, "").strip()
+    if not val:
+        return None
+    return val
+
+required = [
     "COOKIE_CNA", "COOKIE_JSESSIONID", "COOKIE_SESSION", "COOKIE_SERVERID",
     "ZWFW_TOKEN", "ID_CARD", "TG_BOT_TOKEN", "TG_CHAT_ID"
 ]
-missing = []
 config = {}
-for var in required_vars:
-    val = get_env_var(var)
+missing = []
+for v in required:
+    val = get_env(v)
     if val is None:
-        missing.append(var)
+        missing.append(v)
     else:
-        config[var] = val
+        config[v] = val
 
 if missing:
-    print(f"❌ 缺少以下环境变量: {missing}")
+    print_and_log("❌ 缺少以下环境变量:", missing)
     sys.exit(1)
 
-# 提取具体值
+# 赋值
 BASE_COOKIES = {
     "cna": config["COOKIE_CNA"],
     "JSESSIONID": config["COOKIE_JSESSIONID"],
@@ -50,18 +56,18 @@ FIXED_NAME = os.environ.get("FIXED_NAME", "刘德华")
 SAVE_FOLDER = "output"
 RETRY_TIMES = 3
 
-print("✅ 所有环境变量已成功读取，开始查询...")
+print_and_log("✅ 所有环境变量已读取，开始查询...")
 
-# ---------- Telegram 通知 ----------
+# ------------------ Telegram 通知 ------------------
 def send_tg_message(text):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": text}, timeout=10)
-        print(f"TG 响应: {r.status_code} {r.text}")
+        print_and_log(f"TG 响应: {r.status_code} {r.text}")
     except Exception as e:
-        print(f"TG 发送失败: {e}")
+        print_and_log(f"TG 发送失败: {e}")
 
-# ---------- 查询核心逻辑 ----------
+# ------------------ 查询逻辑 ------------------
 def query():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
@@ -124,7 +130,7 @@ def query():
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"   # 可能需要更新
+        "userId": "1547878749006024704"
     }
 
     for i in range(RETRY_TIMES):
@@ -133,11 +139,11 @@ def query():
             result1 = res1.json()
         except Exception as e:
             msg = f"[{i+1}/{RETRY_TIMES}] 请求异常: {e}"
-            print(msg)
+            print_and_log(msg)
             time.sleep(2)
             continue
 
-        print(f"[{i+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
+        print_and_log(f"[{i+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
 
         if result1.get("code") == "1":
             try:
@@ -155,17 +161,24 @@ def query():
             msg = result1.get('message', '未知错误')
             if 'resultDatas' in result1:
                 detail = result1['resultDatas']
-                print(f"详细错误: {detail}")
-            print(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
+                print_and_log(f"详细错误: {detail}")
+            print_and_log(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
             time.sleep(2)
 
     return False, f"连续 {RETRY_TIMES} 次查询均失败"
 
-# ---------- 主程序 ----------
 def main():
-    success, msg = query()
-    print(msg)
-    send_tg_message(msg)
+    try:
+        success, msg = query()
+        print_and_log(msg)
+        send_tg_message(msg)
+    except Exception as e:
+        print_and_log(f"❌ 未捕获的异常: {e}")
+        import traceback
+        traceback.print_exc(file=sys.stdout)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
+    # 确保日志文件被刷新
+    log_file.close()
