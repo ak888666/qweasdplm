@@ -22,7 +22,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           ZWFW_TOKEN: ${{ secrets.ZWFW_TOKEN }}
-          CNA: ${{ secrets.CNA }}
+          cna: ${{ secrets.cna }}
           JSESSIONID: ${{ secrets.JSESSIONID }}
           SESSION: ${{ secrets.SESSION }}
           SERVERID: ${{ secrets.SERVERID }}
