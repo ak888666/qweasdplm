@@ -1,3 +1,5 @@
-requests
-pillow
-python-telegram-bot
+requests==2.31.0
+urllib3==2.0.7
+python-telegram-bot==20.7
+Pillow==10.3.0
+reportlab==4.2.2
