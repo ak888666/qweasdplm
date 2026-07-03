@@ -8,31 +8,39 @@ import sys
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ========== 配置区域（请替换为你的真实值） ==========
-# 固定业务参数
-FIXED_NAME = "刘德华"                # 委托书中的姓名，根据实际情况修改
-SAVE_FOLDER = "output"              # 保存 PDF 的文件夹
+# ---------- 所有敏感信息从环境变量读取 ----------
+BASE_COOKIES = {
+    "cna": os.environ.get("COOKIE_CNA", ""),
+    "JSESSIONID": os.environ.get("COOKIE_JSESSIONID", ""),
+    "SESSION": os.environ.get("COOKIE_SESSION", ""),
+    "SERVERID": os.environ.get("COOKIE_SERVERID", ""),
+}
+ZWFW_TOKEN = os.environ.get("ZWFW_TOKEN", "")
+ID_CARD = os.environ.get("ID_CARD", "").strip()
+FIXED_NAME = os.environ.get("FIXED_NAME", "刘德华")
+SAVE_FOLDER = "output"
 RETRY_TIMES = 3
 
-# 以下四项必须从浏览器抓包获取（替换引号内的值）
-BASE_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",
-    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
-    "SESSION": "REPLACE_SESSION_HERE",
-    "SERVERID": "REPLACE_SERVERID_HERE",
-}
-ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"     # 替换为真实 token
+# Telegram
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 
-# 用户输入身份证号（交互式输入，所以这里不设默认）
-# ID_CARD 在 main 中由用户输入
+def check_config():
+    errors = []
+    for key, value in BASE_COOKIES.items():
+        if not value:
+            errors.append(f"缺少 COOKIE_{key.upper()}")
+    if not ZWFW_TOKEN:
+        errors.append("缺少 ZWFW_TOKEN")
+    if not ID_CARD:
+        errors.append("缺少 ID_CARD")
+    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+        errors.append("缺少 TG 配置")
+    if errors:
+        print("❌ 配置错误:", errors)
+        return False
+    return True
 
-# ========== Telegram 机器人配置（已替你填好） ==========
-TG_BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"   # 你的 Token
-TG_CHAT_ID = "6040143940"           # 从 getUpdates 中获取的 Chat ID
-
-# 若上面的 Token 已失效，请在 @BotFather 重置后替换。
-
-# ---------- 以下函数无需修改 ----------
 def send_tg_message(text):
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     try:
@@ -40,7 +48,7 @@ def send_tg_message(text):
     except Exception as e:
         print(f"TG 发送失败: {e}")
 
-def query(id_card):
+def query():
     if not os.path.exists(SAVE_FOLDER):
         os.makedirs(SAVE_FOLDER)
 
@@ -98,11 +106,11 @@ def query(id_card):
             "ztmc": FIXED_NAME,
             "zzbh": "",
             "dzzz_name": "随便起个名",
-            "cardid": id_card,
+            "cardid": ID_CARD,
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"   # 可能需要更新，请抓包确认
+        "userId": "1547878749006024704"
     }
 
     for i in range(RETRY_TIMES):
@@ -122,7 +130,7 @@ def query(id_card):
                 attachment_id = result1["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
                 url2 = f"https://zwfw.dn.haikou.gov.cn/rest/attachment/{attachment_id}"
                 res2 = session.get(url2, headers=HEADERS2, timeout=30)
-                filename = f"{id_card}.pdf"
+                filename = f"{ID_CARD}.pdf"
                 filepath = os.path.join(SAVE_FOLDER, filename)
                 with open(filepath, 'wb') as f:
                     f.write(res2.content)
@@ -137,18 +145,14 @@ def query(id_card):
             print(f"[{i+1}/{RETRY_TIMES}] 查询失败: {msg}")
             time.sleep(2)
 
-    return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
+    return False, f"连续 {RETRY_TIMES} 次查询均失败"
 
 def main():
-    print("="*50)
-    print("海口政务身份证查询（带 TG 通知）")
-    print("="*50)
-    id_card = input("请输入身份证号: ").strip()
-    if not id_card:
-        print("身份证号不能为空")
-        return
+    if not check_config():
+        send_tg_message("❌ 配置错误，请检查 Secrets")
+        sys.exit(1)
 
-    success, msg = query(id_card)
+    success, msg = query()
     print(msg)
     send_tg_message(msg)
 
