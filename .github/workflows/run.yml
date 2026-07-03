@@ -17,9 +17,7 @@ jobs:
           python-version: '3.10'
 
       - name: 安装依赖
-        run: |
-          pip install --upgrade pip
-          pip install requests urllib3
+        run: pip install requests urllib3
 
       - name: 运行查询
         env:
