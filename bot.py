@@ -15,26 +15,42 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================================
-#  ⚠️ 以下所有配置必须替换为您的真实值！
+#  ⚠️ 所有敏感信息均从环境变量读取（不在代码中硬编码）
 # ============================================================================
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"   # 您的 Bot Token（已填）
-
-# 以下从浏览器抓包获取（必须替换！）
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ZWFW_TOKEN = os.environ.get("ZWFW_TOKEN")
 BASE_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",
-    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
-    "SESSION": "REPLACE_SESSION_HERE",
-    "SERVERID": "REPLACE_SERVERID_HERE",
+    "cna": os.environ.get("CNA"),
+    "JSESSIONID": os.environ.get("JSESSIONID"),
+    "SESSION": os.environ.get("SESSION"),
+    "SERVERID": os.environ.get("SERVERID"),
 }
-ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
 
-# 其他参数（通常无需改动）
+# 检查环境变量是否齐全
+missing = []
+if not BOT_TOKEN:
+    missing.append("BOT_TOKEN")
+if not ZWFW_TOKEN:
+    missing.append("ZWFW_TOKEN")
+for key, value in BASE_COOKIES.items():
+    if not value:
+        missing.append(key)
+if missing:
+    print("=" * 60)
+    print("❌ 环境变量缺失，请设置以下变量：")
+    for m in missing:
+        print(f"  - {m}")
+    print("\n在本地运行请用 export 或 set 命令，在 GitHub Actions 中请配置 Secrets。")
+    print("=" * 60)
+    sys.exit(1)
+
+# 固定参数（无需环境变量）
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
 # ============================================================================
-#  请求头（自动使用上面的 ZWFW_TOKEN）
+#  请求头（使用环境变量中的 ZWFW_TOKEN）
 # ============================================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -74,26 +90,6 @@ HEADERS2 = {
 }
 
 # ============================================================================
-#  配置检查（确保必填项不为空）
-# ============================================================================
-def check_config():
-    errors = []
-    if any(v == "请替换为实际cna值" or v == "" for v in BASE_COOKIES.values()):
-        errors.append("BASE_COOKIES 中有未替换的占位符或空值")
-    if ZWFW_TOKEN == "请替换为实际zwfw-token值" or not ZWFW_TOKEN:
-        errors.append("ZWFW_TOKEN 未替换")
-    if errors:
-        print("=" * 60)
-        print("❌ 配置错误：")
-        for err in errors:
-            print(f"  - {err}")
-        print("\n请从浏览器抓包获取真实的 Cookie 和 zwfw-token，然后替换代码中的对应位置。")
-        print("=" * 60)
-        sys.exit(1)
-
-check_config()
-
-# ============================================================================
 #  核心查询函数
 # ============================================================================
 def query_id_card(id_card):
@@ -130,7 +126,7 @@ def query_id_card(id_card):
             "dzzz_type": "1"
         },
         "itemId": "1047370300041120912",
-        "userId": "1547878749006024704"
+        "userId": "1547878749006024704"   # 如需更新，可从抓包获取
     }
 
     for attempt in range(RETRY_TIMES):
@@ -206,14 +202,35 @@ async def hainansf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ============================================================================
-#  主程序
+#  主程序（带 6 小时自动退出）
 # ============================================================================
-def main():
+async def main():
+    # 设置运行 5 小时 50 分钟（350分钟），避免 GitHub Actions 6 小时强制终止
+    RUN_DURATION_SECONDS = 350 * 60
+    start_time = asyncio.get_event_loop().time()
+
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('hainansf', hainansf))
+    
     print("===== Bot is ready (海南真实查询版) =====")
-    app.run_polling()
+    
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+    # 循环检查运行时间
+    while True:
+        elapsed = asyncio.get_event_loop().time() - start_time
+        if elapsed >= RUN_DURATION_SECONDS:
+            print("🕒 已运行 5小时50分，主动退出，等待下一次 Actions 触发...")
+            break
+        await asyncio.sleep(60)  # 每分钟检查一次
+
+    # 优雅关闭
+    await app.updater.stop()
+    await app.stop()
+    await app.shutdown()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
