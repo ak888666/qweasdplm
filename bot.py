@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 # ---------- ⚠️ 请将 Token 替换为您的真实 Bot Token ----------
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
+BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
 
 # ---------- 可选依赖 ----------
 try:
