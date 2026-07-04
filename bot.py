@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC间距优化) =====")
+print("===== Bot 三功能完整版 (PLC坐标适配1280x979) =====")
 
 import os
 import time
@@ -243,30 +243,45 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（坐标集中配置，大幅增加间距）
+# 4. 生成功能2：/plc（坐标适配 1280x979 模板）
 # ====================================================================
 
-# ---------- PLC 坐标参数（可根据实际模板调整） ----------
+# ---------- PLC 坐标参数（根据 1280×979 模板精确设置） ----------
 PLC_COORDS = {
-    'avatar_x': 50,
-    'avatar_y': 150,
-    'avatar_w': 400,
-    'avatar_h': 480,
-    'name_x': 470,
-    'name_y': 330,        # 姓名位置下移
-    'gender_x': 470,
-    'gender_y': 450,      # 性别下移
-    'nation_x': 670,
-    'nation_y': 450,      # 民族与性别同行
-    'birth_x': 470,
-    'birth_y': 570,       # 出生日期下移
-    'id_x': 470,
-    'id_y': 690,          # 身份证号下移
-    'addr_x': 470,
-    'addr_y': 810,        # 地址第一行下移
-    'addr_line_spacing': 75,  # 地址行距加大
-    'addr_max_chars': 12,
-    'font_size': 48,      # 字体稍微缩小
+    # 头像位置（左上角）
+    'avatar_x': 30,
+    'avatar_y': 80,
+    'avatar_w': 320,
+    'avatar_h': 390,
+
+    # 姓名
+    'name_x': 390,
+    'name_y': 160,
+
+    # 性别
+    'gender_x': 390,
+    'gender_y': 260,
+
+    # 民族（与性别同行，间隔约 140 像素）
+    'nation_x': 540,
+    'nation_y': 260,
+
+    # 出生日期
+    'birth_x': 390,
+    'birth_y': 360,
+
+    # 身份证号码
+    'id_x': 390,
+    'id_y': 460,
+
+    # 户口地址（起始位置）
+    'addr_x': 390,
+    'addr_y': 560,
+    'addr_line_spacing': 50,
+    'addr_max_chars': 11,
+
+    # 字体大小
+    'font_size': 38,
 }
 # --------------------------------------------------------------
 
@@ -320,6 +335,7 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', c['font_size'])
 
+    # 绘制文字
     draw.text((c['name_x'], c['name_y']), name, font=font, fill=(0, 0, 0))
     draw.text((c['gender_x'], c['gender_y']), gender, font=font, fill=(0, 0, 0))
     draw.text((c['nation_x'], c['nation_y']), nation, font=font, fill=(0, 0, 0))
@@ -332,11 +348,13 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
 
     draw.text((c['id_x'], c['id_y']), id_card, font=font, fill=(0, 0, 0))
 
+    # 地址换行
     max_chars = c['addr_max_chars']
     address_lines = [address[i:i+max_chars] for i in range(0, len(address), max_chars)]
     for i, line in enumerate(address_lines):
         draw.text((c['addr_x'], c['addr_y'] + i * c['addr_line_spacing']), line, font=font, fill=(0, 0, 0))
 
+    # 生成图片和PDF
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
@@ -673,7 +691,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC间距优化，文字不再重叠）")
+    print("🤖 机器人已启动（PLC坐标适配1280x979模板）")
     updater.start_polling()
     updater.idle()
 
