@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 import sys
-print("===== 最小化测试版 (仅 /start 和 /plc) =====")
+print("===== 最小化测试版 (修复事件循环) =====")
 
 import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# ============================================================
-# 只修改这一行：填你的 Bot Token
-# ============================================================
-BOT_TOKEN = "你的真实BOT_TOKEN"
+BOT_TOKEN = "你的真实BOT_TOKEN"   # 只改这一个
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -29,4 +26,11 @@ async def main():
     await app.run_polling()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    # 改用 get_event_loop().run_until_complete 避免事件循环冲突
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        print("手动中断")
+    finally:
+        loop.close()
