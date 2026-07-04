@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC无民族, 使用mb.jpg) =====")
+print("===== Bot 三功能完整版 (v13 带按钮确认) =====")
 
 import os
 import time
@@ -19,22 +19,13 @@ from telegram.ext import (
     MessageHandler, Filters, CallbackQueryHandler
 )
 
-# ---------- ⚠️ 请将 Token 替换为您的真实 Bot Token ----------
-BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
-
-# ---------- 可选依赖 ----------
-try:
-    from pdf2image import convert_from_bytes
-    PDF2IMAGE_AVAILABLE = True
-except ImportError:
-    PDF2IMAGE_AVAILABLE = False
-    print("⚠️ pdf2image 未安装，自动提取头像功能不可用")
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-#  ⚠️ Cookie 和 Token 替换为真实数据（如需使用 /hainansf）
+#  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
 # ============================================================
+BOT_TOKEN = "5849383582:AAHKD-K_erbIyYzMT7Oo09Oodxod6UkX6PE"
+
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
@@ -243,7 +234,7 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（无民族，使用 mb.jpg）
+# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地址，带按钮确认）
 # ====================================================================
 def load_area_map():
     area_map = {}
@@ -273,47 +264,38 @@ def get_address_from_idcard(id_card):
     return AREA_MAP.get(prefix, None)
 
 def generate_plc_sync(name, id_card, address, avatar_path):
-    """
-    生成 PLC 模板身份证（无民族，使用 mb.jpg）
-    """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
 
-    template_path = 'plc/mb.jpg'
-    if not os.path.exists(template_path):
-        raise FileNotFoundError(f"PLC模板文件 {template_path} 不存在")
+    if not os.path.exists('plc/mb.jpg'):
+        raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
 
-    template = Image.open(template_path).convert("RGBA")
-
-    # 粘贴头像（固定坐标）
+    template = Image.open('plc/mb.jpg').convert("RGBA")
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
     avatar = avatar.resize((416, 500))
-    template.paste(avatar, (70, 180), mask=avatar)
+    template.paste(avatar, (26, 333), mask=avatar)
 
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', 55)
 
-    # 绘制文字（无民族）
-    draw.text((450, 280), name, font=font, fill=(0, 0, 0))
-    draw.text((450, 380), gender, font=font, fill=(0, 0, 0))
-
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
-    birth_str = f"{year}年{month}月{day}日"
-    draw.text((450, 480), birth_str, font=font, fill=(0, 0, 0))
+    birth_str = year + "年" + month + "月" + day + "日"
 
-    draw.text((450, 600), id_card, font=font, fill=(0, 0, 0))
+    draw.text((598, 314), name, font=font, fill=(0, 0, 0))
+    draw.text((598, 398), gender, font=font, fill=(0, 0, 0))
+    draw.text((474, 641), id_card, font=font, fill=(0, 0, 0))
+    draw.text((718, 482), birth_str, font=font, fill=(0, 0, 0))
 
     address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     for i, line in enumerate(address_lines):
-        draw.text((450, 720 + i * 70), line, font=font, fill=(0, 0, 0))
+        draw.text((473, 782 + i * 60), line, font=font, fill=(0, 0, 0))
 
-    # 生成图片和PDF
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
@@ -333,25 +315,17 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 5. Telegram 命令
+# 5. Telegram 命令（同步，v13 风格）
 # ====================================================================
 def start(update, context):
     update.message.reply_text(
-        "👋 小宇：\n"
-        "/hainansf +空格+身份证→查海南大头可选生成身份证\n"
-        "/sfz → 加工生成双面身份证 · 自动签发机关\n"
-        "/plc → 生成 PLC 模板（无民族）\n"
+        "小宇：\n"
+        "/hainansf +空格+身份证→查询海南大头\n"
+        "/sfz → 生成双面身份证·自动签发机关\n"
+        "/plc → 生成PLC模板自动地址·按钮确认或手动输入\n"
         "/cancel → 取消当前操作"
     )
 
-def cancel(update, context):
-    update.message.reply_text("已取消")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-# ====================================================================
-# 5a. /hainansf 查询 + 生成身份证（带按钮）
-# ====================================================================
 def hainansf(update, context):
     args = context.args
     if not args:
@@ -364,57 +338,21 @@ def hainansf(update, context):
     update.message.reply_text("⏳ 正在查询海南系统...")
     success, result = query_id_card_sync(id_card)
     if success:
-        pdf_bytes = io.BytesIO(result)
-        context.user_data['hainansf_pdf'] = result
-        context.user_data['hainansf_id'] = id_card
-
         context.bot.send_document(
             chat_id=update.effective_chat.id,
-            document=pdf_bytes,
+            document=io.BytesIO(result),
             filename=f"{id_card}.pdf",
-            caption="✅ 查询成功！请选择下一步操作："
+            caption="✅ 查询成功"
         )
-
-        keyboard = [
-            [InlineKeyboardButton("🪪 生成双面身份证", callback_data="hainansf_gen_id")],
-            [InlineKeyboardButton("📄 仅下载 PDF", callback_data="hainansf_only_pdf")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("选择操作：", reply_markup=reply_markup)
     else:
         update.message.reply_text(f"❌ 查询失败：{result}")
 
-def hainansf_callback(update, context):
-    query = update.callback_query
-    query.answer()
-    data = query.data
-    if data == "hainansf_only_pdf":
-        query.edit_message_text("已仅下载 PDF。")
-        return
-    elif data == "hainansf_gen_id":
-        if not PDF2IMAGE_AVAILABLE:
-            query.edit_message_text("⚠️ 请手动发送照片并运行 /sfz 生成。")
-            return
-        try:
-            pdf_data = context.user_data.get('hainansf_pdf')
-            if not pdf_data:
-                query.edit_message_text("❌ 未找到查询结果，请重新 /hainansf")
-                return
-            images = convert_from_bytes(pdf_data, first_page=1, last_page=1)
-            if not images:
-                query.edit_message_text("❌ 无法提取头像，请手动发送照片。")
-                return
-            temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
-            images[0].save(temp_img, format='PNG')
-            temp_img.close()
-            context.user_data['hainansf_photo_path'] = temp_img.name
-            query.edit_message_text("✅ 已提取头像，请继续使用 /sfz 手动生成。")
-        except Exception as e:
-            query.edit_message_text(f"❌ 转换失败：{e}")
+def cancel(update, context):
+    update.message.reply_text("已取消")
+    context.user_data.clear()
+    return ConversationHandler.END
 
-# ====================================================================
-# 5b. /sfz 对话（不变）
-# ====================================================================
+# ===== /sfz 对话（同步） =====
 SFZ_NAME, SFZ_ID, SFZ_NATION, SFZ_ADDR, SFZ_EXPIRY, SFZ_PHOTO = range(6)
 
 def sfz_start(update, context):
@@ -485,13 +423,11 @@ def sfz_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ====================================================================
-# 5c. /plc 对话（无民族，地址确认）
-# ====================================================================
+# ===== /plc 对话（同步，带按钮确认地址） =====
 PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
-    update.message.reply_text("📝 开始生成 PLC 身份证，请输入姓名：")
+    update.message.reply_text("📝 开始生成身份证（PLC模板），请输入姓名：")
     return PLC_NAME
 
 def plc_name(update, context):
@@ -563,8 +499,7 @@ def plc_photo(update, context):
         photo_path = tmp.name
 
     data = context.user_data
-    required = ['name', 'id_number', 'address']
-    if not all(k in data for k in required):
+    if not all(k in data for k in ['name','id_number','address']):
         update.message.reply_text("信息不完整，请重新 /plc")
         return ConversationHandler.END
 
@@ -573,11 +508,11 @@ def plc_photo(update, context):
         img, pdf = generate_plc_sync(
             data['name'], data['id_number'], data['address'], photo_path
         )
-        update.message.reply_photo(photo=img, caption=f"✅ {data['name']} 的PLC身份证")
+        update.message.reply_photo(photo=img, caption=f"✅ {data['name']} 的身份证（PLC模板）")
         context.bot.send_document(
             chat_id=update.effective_chat.id,
             document=pdf,
-            filename=f"{data['name']}_PLC身份证.pdf"
+            filename=f"{data['name']}_身份证_PLC.pdf"
         )
     except FileNotFoundError as e:
         update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpg 和 10.ttf")
@@ -596,11 +531,12 @@ def main():
     updater = Updater(BOT_TOKEN)
     dp = updater.dispatcher
 
+    # 普通命令
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("cancel", cancel))
-    dp.add_handler(CallbackQueryHandler(hainansf_callback, pattern='^hainansf_'))
 
+    # /sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -615,12 +551,13 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
+    # /plc 对话（带按钮确认）
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
             PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
             PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
-            PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^plc_addr_')],
+            PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
             PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
             PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
         },
@@ -628,7 +565,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC无民族，使用mb.jpg）")
+    print("🤖 机器人已启动（三功能完整版，PLC地址确认按钮已启用）")
     updater.start_polling()
     updater.idle()
 
