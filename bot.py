@@ -15,7 +15,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
-    Updater, CommandHandler, ConversationHandler, 
+    Updater, CommandHandler, ConversationHandler,
     MessageHandler, Filters, CallbackQueryHandler
 )
 
@@ -321,8 +321,8 @@ def start(update, context):
     update.message.reply_text(
         "小宇：\n"
         "/hainansf +空格+身份证→查询海南大头\n"
-        "/sfz → 加工生成双面身份证自动签发机关\n"
-        "/plc → 生成PLC自动匹配地址按钮确认或手动输入\n"
+        "/sfz → 加工生成双面身份证自动.签发机关\n"
+        "/plc → 生成PLC自动匹配地址按钮确认或手动输入）\n"
         "/cancel → 取消当前操作"
     )
 
