@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (同步版 v13, PLC确认地址) =====")
+print("===== Bot 三功能完整版 (v13 带按钮确认) =====")
 
 import os
 import time
@@ -13,14 +13,18 @@ import urllib3
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Updater, CommandHandler, ConversationHandler, 
+    MessageHandler, Filters, CallbackQueryHandler
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-#  ⚠️ 必填项：请将下方所有 "你的真实..." 替换为真实数据
+#  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
 # ============================================================
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"   # 建议更换为自己的 Token
+BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
 
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
@@ -230,7 +234,7 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地址，支持确认）
+# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地址，带按钮确认）
 # ====================================================================
 def load_area_map():
     area_map = {}
@@ -264,7 +268,6 @@ def generate_plc_sync(name, id_card, address, avatar_path):
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
 
-    # 检查文件存在性
     if not os.path.exists('plc/mb.jpg'):
         raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
     if not os.path.exists('plc/10.ttf'):
@@ -318,8 +321,8 @@ def start(update, context):
     update.message.reply_text(
         "小宇：\n"
         "/hainansf +空格+身份证→查询海南大头\n"
-        "/sfz → 加工生成双面身份证自动.签发机关\n"
-        "/plc → 生成PLC自动地址.可确认或手动输入\n"
+        "/sfz → 加工生成双面身份证自动签发机关\n"
+        "/plc → 生成PLC自动匹配地址按钮确认或手动输入\n"
         "/cancel → 取消当前操作"
     )
 
@@ -420,7 +423,7 @@ def sfz_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /plc 对话（同步，新增地址确认） =====
+# ===== /plc 对话（同步，带按钮确认地址） =====
 PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
@@ -442,9 +445,14 @@ def plc_id(update, context):
     address = get_address_from_idcard(id_card)
     if address:
         context.user_data['auto_addr'] = address
+        keyboard = [
+            [InlineKeyboardButton("✅ 是，使用此地址", callback_data="plc_addr_yes")],
+            [InlineKeyboardButton("❌ 否，手动输入", callback_data="plc_addr_no")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
-            f"✅ 自动匹配到地址：{address}\n"
-            "请输入 '是' 确认使用此地址，或直接输入新地址（输入 '否' 也会进入手动输入）："
+            f"✅ 自动匹配到地址：{address}\n请选择是否使用此地址：",
+            reply_markup=reply_markup
         )
         return PLC_ADDR_CONFIRM
     else:
@@ -454,27 +462,22 @@ def plc_id(update, context):
             update.message.reply_text("⚠️ 无法自动匹配地址，请手动输入详细地址：")
         return PLC_ADDR_MANUAL
 
-def plc_addr_confirm(update, context):
-    text = update.message.text.strip()
-    if text.lower() in ('是', 'yes', 'y', '确认', 'ok'):
+def plc_addr_confirm_callback(update, context):
+    query = update.callback_query
+    query.answer()
+    data = query.data
+    if data == "plc_addr_yes":
         address = context.user_data.get('auto_addr')
-        if not address:
-            update.message.reply_text("未找到自动匹配地址，请手动输入：")
-            return PLC_ADDR_MANUAL
-        context.user_data['address'] = address
-        update.message.reply_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
-        return PLC_PHOTO
-    else:
-        if text.lower() in ('否', 'no', 'n', '不'):
-            update.message.reply_text("请输入详细地址（手动输入）：")
-            return PLC_ADDR_MANUAL
-        else:
-            if len(text) < 5:
-                update.message.reply_text("地址太短，请重新输入有效地址：")
-                return PLC_ADDR_CONFIRM
-            context.user_data['address'] = text
-            update.message.reply_text(f"✅ 已更新地址：{text}\n请发送一张本人照片：")
+        if address:
+            context.user_data['address'] = address
+            query.edit_message_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
             return PLC_PHOTO
+        else:
+            query.edit_message_text("未找到自动匹配地址，请手动输入：")
+            return PLC_ADDR_MANUAL
+    elif data == "plc_addr_no":
+        query.edit_message_text("请输入详细地址（手动输入）：")
+        return PLC_ADDR_MANUAL
 
 def plc_addr_manual(update, context):
     address = update.message.text.strip()
@@ -548,13 +551,13 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话（已修改，增加确认状态）
+    # /plc 对话（带按钮确认）
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
             PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
             PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
-            PLC_ADDR_CONFIRM: [MessageHandler(Filters.text & ~Filters.command, plc_addr_confirm)],
+            PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
             PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
             PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
         },
@@ -562,7 +565,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（三功能完整版，PLC地址确认功能已开启）")
+    print("🤖 机器人已启动（三功能完整版，PLC地址确认按钮已启用）")
     updater.start_polling()
     updater.idle()
 
