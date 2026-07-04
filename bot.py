@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC坐标适配1280x979) =====")
+print("===== Bot 三功能完整版 (PLC无民族, 使用mb.jpg) =====")
 
 import os
 import time
@@ -20,7 +20,7 @@ from telegram.ext import (
 )
 
 # ---------- ⚠️ 请将 Token 替换为您的真实 Bot Token ----------
-BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
+BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
 
 # ---------- 可选依赖 ----------
 try:
@@ -243,48 +243,8 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（坐标适配 1280x979 模板）
+# 4. 生成功能2：/plc（无民族，使用 mb.jpg）
 # ====================================================================
-
-# ---------- PLC 坐标参数（根据 1280×979 模板精确设置） ----------
-PLC_COORDS = {
-    # 头像位置（左上角）
-    'avatar_x': 30,
-    'avatar_y': 80,
-    'avatar_w': 320,
-    'avatar_h': 390,
-
-    # 姓名
-    'name_x': 390,
-    'name_y': 160,
-
-    # 性别
-    'gender_x': 390,
-    'gender_y': 260,
-
-    # 民族（与性别同行，间隔约 140 像素）
-    'nation_x': 540,
-    'nation_y': 260,
-
-    # 出生日期
-    'birth_x': 390,
-    'birth_y': 360,
-
-    # 身份证号码
-    'id_x': 390,
-    'id_y': 460,
-
-    # 户口地址（起始位置）
-    'addr_x': 390,
-    'addr_y': 560,
-    'addr_line_spacing': 50,
-    'addr_max_chars': 11,
-
-    # 字体大小
-    'font_size': 38,
-}
-# --------------------------------------------------------------
-
 def load_area_map():
     area_map = {}
     file_path = 'plc/地区.txt'
@@ -312,47 +272,46 @@ def get_address_from_idcard(id_card):
     prefix = id_card[:6]
     return AREA_MAP.get(prefix, None)
 
-def generate_plc_sync(name, id_card, nation, address, avatar_path):
+def generate_plc_sync(name, id_card, address, avatar_path):
+    """
+    生成 PLC 模板身份证（无民族，使用 mb.jpg）
+    """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
 
-    template_path = 'plc/mb.jpeg'
+    template_path = 'plc/mb.jpg'
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"PLC模板文件 {template_path} 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
 
     template = Image.open(template_path).convert("RGBA")
-    c = PLC_COORDS
 
-    # 粘贴头像
+    # 粘贴头像（固定坐标）
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
-    avatar = avatar.resize((c['avatar_w'], c['avatar_h']))
-    template.paste(avatar, (c['avatar_x'], c['avatar_y']), mask=avatar)
+    avatar = avatar.resize((416, 500))
+    template.paste(avatar, (70, 180), mask=avatar)
 
     draw = ImageDraw.Draw(template)
-    font = ImageFont.truetype('plc/10.ttf', c['font_size'])
+    font = ImageFont.truetype('plc/10.ttf', 55)
 
-    # 绘制文字
-    draw.text((c['name_x'], c['name_y']), name, font=font, fill=(0, 0, 0))
-    draw.text((c['gender_x'], c['gender_y']), gender, font=font, fill=(0, 0, 0))
-    draw.text((c['nation_x'], c['nation_y']), nation, font=font, fill=(0, 0, 0))
+    # 绘制文字（无民族）
+    draw.text((450, 280), name, font=font, fill=(0, 0, 0))
+    draw.text((450, 380), gender, font=font, fill=(0, 0, 0))
 
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = f"{year}年{month}月{day}日"
-    draw.text((c['birth_x'], c['birth_y']), birth_str, font=font, fill=(0, 0, 0))
+    draw.text((450, 480), birth_str, font=font, fill=(0, 0, 0))
 
-    draw.text((c['id_x'], c['id_y']), id_card, font=font, fill=(0, 0, 0))
+    draw.text((450, 600), id_card, font=font, fill=(0, 0, 0))
 
-    # 地址换行
-    max_chars = c['addr_max_chars']
-    address_lines = [address[i:i+max_chars] for i in range(0, len(address), max_chars)]
+    address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     for i, line in enumerate(address_lines):
-        draw.text((c['addr_x'], c['addr_y'] + i * c['addr_line_spacing']), line, font=font, fill=(0, 0, 0))
+        draw.text((450, 720 + i * 70), line, font=font, fill=(0, 0, 0))
 
     # 生成图片和PDF
     img_bytes = io.BytesIO()
@@ -360,28 +319,28 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
     img_bytes.seek(0)
 
     pdf_bytes = io.BytesIO()
-    c_canvas = canvas.Canvas(pdf_bytes, pagesize=A4)
+    c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
     scale = min(A4[0]/w, A4[1]/h)
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
         tmp_path = tmp.name
         template.save(tmp_path, format='PNG')
-    c_canvas.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
-    c_canvas.save()
+    c.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
+    c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_path)
 
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 5. Telegram 命令（不变）
+# 5. Telegram 命令
 # ====================================================================
 def start(update, context):
     update.message.reply_text(
         "👋 小宇：\n"
         "/hainansf +空格+身份证→查海南大头可选生成身份证\n"
         "/sfz → 加工生成双面身份证 · 自动签发机关\n"
-        "/plc → 生成 PLC 模板 · 自动地址或者手动输入\n"
+        "/plc → 生成 PLC 模板（无民族）\n"
         "/cancel → 取消当前操作"
     )
 
@@ -527,12 +486,12 @@ def sfz_photo(update, context):
     return ConversationHandler.END
 
 # ====================================================================
-# 5c. /plc 对话（按钮修复）
+# 5c. /plc 对话（无民族，地址确认）
 # ====================================================================
-PLC_NAME, PLC_ID, PLC_NATION, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 16)
+PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
-    update.message.reply_text("📝 开始生成 PLC 身份证（新布局），请输入姓名：")
+    update.message.reply_text("📝 开始生成 PLC 身份证，请输入姓名：")
     return PLC_NAME
 
 def plc_name(update, context):
@@ -546,19 +505,7 @@ def plc_id(update, context):
         update.message.reply_text("格式错误，重新输入：")
         return PLC_ID
     context.user_data['id_number'] = id_card
-    gender = "男" if int(id_card[16]) % 2 == 1 else "女"
-    context.user_data['gender'] = gender
-    update.message.reply_text(f"身份证识别性别：{gender}\n请输入民族：")
-    return PLC_NATION
 
-def plc_nation(update, context):
-    nation = update.message.text.strip()
-    if not nation:
-        update.message.reply_text("民族不能为空，请重新输入：")
-        return PLC_NATION
-    context.user_data['nation'] = nation
-
-    id_card = context.user_data['id_number']
     address = get_address_from_idcard(id_card)
     if address:
         context.user_data['auto_addr'] = address
@@ -583,26 +530,18 @@ def plc_addr_confirm_callback(update, context):
     query = update.callback_query
     query.answer()
     data = query.data
-    try:
-        if data == "plc_addr_yes":
-            address = context.user_data.get('auto_addr')
-            if address:
-                context.user_data['address'] = address
-                query.edit_message_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
-                return PLC_PHOTO
-            else:
-                query.edit_message_text("未找到自动匹配地址，请手动输入：")
-                return PLC_ADDR_MANUAL
-        elif data == "plc_addr_no":
-            query.edit_message_text("请输入详细地址（手动输入）：")
-            return PLC_ADDR_MANUAL
+    if data == "plc_addr_yes":
+        address = context.user_data.get('auto_addr')
+        if address:
+            context.user_data['address'] = address
+            query.edit_message_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
+            return PLC_PHOTO
         else:
-            query.edit_message_text("无效选择，请手动输入地址：")
+            query.edit_message_text("未找到自动匹配地址，请手动输入：")
             return PLC_ADDR_MANUAL
-    except Exception as e:
-        print(f"PLC回调异常: {e}")
-        query.edit_message_text("处理出错，请重新开始 /plc")
-        return ConversationHandler.END
+    elif data == "plc_addr_no":
+        query.edit_message_text("请输入详细地址（手动输入）：")
+        return PLC_ADDR_MANUAL
 
 def plc_addr_manual(update, context):
     address = update.message.text.strip()
@@ -624,7 +563,7 @@ def plc_photo(update, context):
         photo_path = tmp.name
 
     data = context.user_data
-    required = ['name', 'id_number', 'nation', 'address']
+    required = ['name', 'id_number', 'address']
     if not all(k in data for k in required):
         update.message.reply_text("信息不完整，请重新 /plc")
         return ConversationHandler.END
@@ -632,8 +571,7 @@ def plc_photo(update, context):
     update.message.reply_text("⏳ 生成中...")
     try:
         img, pdf = generate_plc_sync(
-            data['name'], data['id_number'], data['nation'],
-            data['address'], photo_path
+            data['name'], data['id_number'], data['address'], photo_path
         )
         update.message.reply_photo(photo=img, caption=f"✅ {data['name']} 的PLC身份证")
         context.bot.send_document(
@@ -642,7 +580,7 @@ def plc_photo(update, context):
             filename=f"{data['name']}_PLC身份证.pdf"
         )
     except FileNotFoundError as e:
-        update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpeg 和 10.ttf")
+        update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpg 和 10.ttf")
     except Exception as e:
         update.message.reply_text(f"❌ 生成失败：{e}")
     finally:
@@ -682,7 +620,6 @@ def main():
         states={
             PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
             PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
-            PLC_NATION: [MessageHandler(Filters.text & ~Filters.command, plc_nation)],
             PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^plc_addr_')],
             PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
             PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
@@ -691,7 +628,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC坐标适配1280x979模板）")
+    print("🤖 机器人已启动（PLC无民族，使用mb.jpg）")
     updater.start_polling()
     updater.idle()
 
