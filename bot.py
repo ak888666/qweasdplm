@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC按钮修复+mb.jpeg) =====")
+print("===== Bot 三功能完整版 (PLC坐标已调) =====")
 
 import os
 import time
@@ -19,7 +19,10 @@ from telegram.ext import (
     MessageHandler, Filters, CallbackQueryHandler
 )
 
-# 尝试导入 pdf2image（可选）
+# ---------- ⚠️ 请将 Token 替换为您的真实 Bot Token ----------
+BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
+
+# ---------- 可选依赖 ----------
 try:
     from pdf2image import convert_from_bytes
     PDF2IMAGE_AVAILABLE = True
@@ -30,10 +33,8 @@ except ImportError:
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-#  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
+#  ⚠️ Cookie 和 Token 替换为真实数据（如需使用 /hainansf）
 # ============================================================
-BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
-
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
@@ -242,7 +243,7 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（使用 mb.jpeg 模板，布局调整 + 民族）
+# 4. 生成功能2：/plc（使用 mb.jpeg 模板，坐标已优化）
 # ====================================================================
 def load_area_map():
     area_map = {}
@@ -273,14 +274,12 @@ def get_address_from_idcard(id_card):
 
 def generate_plc_sync(name, id_card, nation, address, avatar_path):
     """
-    生成 PLC 模板身份证，布局与示例 IMG_9644.webp 一致。
-    模板文件使用 plc/mb.jpeg
+    生成 PLC 模板身份证，坐标已针对常见模板调整。
     """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
 
-    # 模板文件改为 mb.jpeg
     template_path = 'plc/mb.jpeg'
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"PLC模板文件 {template_path} 不存在")
@@ -289,34 +288,66 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
 
     template = Image.open(template_path).convert("RGBA")
 
-    # 粘贴头像（位置和尺寸根据你的模板调整）
+    # ---------- 坐标参数（根据实际模板微调） ----------
+    # 头像位置（左上角）
+    AVATAR_X = 70
+    AVATAR_Y = 180
+    AVATAR_W = 416
+    AVATAR_H = 500
+
+    # 姓名
+    NAME_X = 470
+    NAME_Y = 300
+
+    # 性别（单独）
+    GENDER_X = 470
+    GENDER_Y = 410
+
+    # 民族（性别右侧，留间距）
+    NATION_X = 680
+    NATION_Y = 410
+
+    # 出生日期
+    BIRTH_X = 470
+    BIRTH_Y = 520
+
+    # 身份证号码
+    ID_X = 470
+    ID_Y = 640
+
+    # 户口地址（起始位置）
+    ADDR_X = 470
+    ADDR_Y = 760
+    ADDR_LINE_SPACING = 70
+    ADDR_MAX_CHARS_PER_LINE = 11
+    # ---------- 坐标结束 ----------
+
+    # 粘贴头像
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
-    avatar = avatar.resize((416, 500))
-    template.paste(avatar, (70, 180), mask=avatar)
+    avatar = avatar.resize((AVATAR_W, AVATAR_H))
+    template.paste(avatar, (AVATAR_X, AVATAR_Y), mask=avatar)
 
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', 55)
 
-    # 文字位置（根据示例图片调整，如需要请修改坐标）
-    draw.text((450, 280), name, font=font, fill=(0, 0, 0))
-    draw.text((450, 380), gender, font=font, fill=(0, 0, 0))
-    draw.text((650, 380), " " + nation, font=font, fill=(0, 0, 0))  # 性别与民族同排
+    draw.text((NAME_X, NAME_Y), name, font=font, fill=(0, 0, 0))
+    draw.text((GENDER_X, GENDER_Y), gender, font=font, fill=(0, 0, 0))
+    draw.text((NATION_X, NATION_Y), nation, font=font, fill=(0, 0, 0))
 
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = f"{year}年{month}月{day}日"
-    draw.text((450, 480), birth_str, font=font, fill=(0, 0, 0))
+    draw.text((BIRTH_X, BIRTH_Y), birth_str, font=font, fill=(0, 0, 0))
 
-    draw.text((450, 600), id_card, font=font, fill=(0, 0, 0))
+    draw.text((ID_X, ID_Y), id_card, font=font, fill=(0, 0, 0))
 
-    address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
-    y_addr = 720
-    for line in address_lines:
-        draw.text((450, y_addr), line, font=font, fill=(0, 0, 0))
-        y_addr += 70
+    address_lines = [address[i:i+ADDR_MAX_CHARS_PER_LINE] for i in range(0, len(address), ADDR_MAX_CHARS_PER_LINE)]
+    for i, line in enumerate(address_lines):
+        draw.text((ADDR_X, ADDR_Y + i * ADDR_LINE_SPACING), line, font=font, fill=(0, 0, 0))
 
+    # 生成图片和PDF
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
@@ -340,7 +371,7 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
 # ====================================================================
 def start(update, context):
     update.message.reply_text(
-        "小宇：\n"
+        "👋 小宇：\n"
         "/hainansf +空格+身份证→查海南大头可选生成身份证\n"
         "/sfz → 加工生成双面身份证 · 自动签发机关\n"
         "/plc → 生成 PLC 模板 · 自动地址或者手动输入\n"
@@ -489,7 +520,7 @@ def sfz_photo(update, context):
     return ConversationHandler.END
 
 # ====================================================================
-# 5c. /plc 对话（增加民族输入，布局调整，按钮修复）
+# 5c. /plc 对话（按钮修复）
 # ====================================================================
 PLC_NAME, PLC_ID, PLC_NATION, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 16)
 
@@ -545,20 +576,26 @@ def plc_addr_confirm_callback(update, context):
     query = update.callback_query
     query.answer()
     data = query.data
-    if data == "plc_addr_yes":
-        address = context.user_data.get('auto_addr')
-        if address:
-            context.user_data['address'] = address
-            query.edit_message_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
-            return PLC_PHOTO
-        else:
-            query.edit_message_text("未找到自动匹配地址，请手动输入：")
+    try:
+        if data == "plc_addr_yes":
+            address = context.user_data.get('auto_addr')
+            if address:
+                context.user_data['address'] = address
+                query.edit_message_text(f"✅ 已使用地址：{address}\n请发送一张本人照片：")
+                return PLC_PHOTO
+            else:
+                query.edit_message_text("未找到自动匹配地址，请手动输入：")
+                return PLC_ADDR_MANUAL
+        elif data == "plc_addr_no":
+            query.edit_message_text("请输入详细地址（手动输入）：")
             return PLC_ADDR_MANUAL
-    elif data == "plc_addr_no":
-        query.edit_message_text("请输入详细地址（手动输入）：")
-        return PLC_ADDR_MANUAL
-    # 安全返回
-    return PLC_ADDR_MANUAL
+        else:
+            query.edit_message_text("无效选择，请手动输入地址：")
+            return PLC_ADDR_MANUAL
+    except Exception as e:
+        print(f"PLC回调异常: {e}")
+        query.edit_message_text("处理出错，请重新开始 /plc")
+        return ConversationHandler.END
 
 def plc_addr_manual(update, context):
     address = update.message.text.strip()
@@ -634,7 +671,7 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话（新布局，包含民族，按钮修复）
+    # /plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -649,7 +686,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC布局调整+民族，模板使用mb.jpeg，按钮已修复）")
+    print("🤖 机器人已启动（PLC坐标已优化）")
     updater.start_polling()
     updater.idle()
 
