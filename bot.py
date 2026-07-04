@@ -322,7 +322,7 @@ def start(update, context):
         "小宇：\n"
         "/hainansf +空格+身份证→查询海南大头\n"
         "/sfz → 加工生成双面身份证自动.签发机关\n"
-        "/plc → 生成PLC自动匹配地址按钮确认或手动输入）\n"
+        "/plc → 生成PLC匹配地址.按钮确认或手动输入\n"
         "/cancel → 取消当前操作"
     )
 
