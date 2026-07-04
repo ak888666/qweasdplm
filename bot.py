@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC布局调整+民族) =====")
+print("===== Bot 三功能完整版 (PLC按钮修复+mb.jpeg) =====")
 
 import os
 import time
@@ -242,7 +242,7 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（使用 mb.jpg 模板，布局调整 + 民族）
+# 4. 生成功能2：/plc（使用 mb.jpeg 模板，布局调整 + 民族）
 # ====================================================================
 def load_area_map():
     area_map = {}
@@ -273,64 +273,50 @@ def get_address_from_idcard(id_card):
 
 def generate_plc_sync(name, id_card, nation, address, avatar_path):
     """
-    生成 PLC 模板身份证，布局与示例 IMG_9644.webp 一致：
-    - 头像在左上角 (位置可调)
-    - 姓名、性别+民族、出生日期、身份证号、户口地址按示例位置
+    生成 PLC 模板身份证，布局与示例 IMG_9644.webp 一致。
+    模板文件使用 plc/mb.jpeg
     """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
 
-    # 检查模板文件
-    if not os.path.exists('plc/mb.jpg'):
-        raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
+    # 模板文件改为 mb.jpeg
+    template_path = 'plc/mb.jpeg'
+    if not os.path.exists(template_path):
+        raise FileNotFoundError(f"PLC模板文件 {template_path} 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
 
-    # 打开模板
-    template = Image.open('plc/mb.jpg').convert("RGBA")
+    template = Image.open(template_path).convert("RGBA")
 
-    # ----- 粘贴头像（位置与示例一致） -----
+    # 粘贴头像（位置和尺寸根据你的模板调整）
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
-    # 示例中头像尺寸约 416x500，位置在左上角 (x≈70, y≈180) 左右
     avatar = avatar.resize((416, 500))
-    template.paste(avatar, (70, 180), mask=avatar)   # 根据实际模板调整
+    template.paste(avatar, (70, 180), mask=avatar)
 
     draw = ImageDraw.Draw(template)
-    font = ImageFont.truetype('plc/10.ttf', 55)      # 字体大小可调
+    font = ImageFont.truetype('plc/10.ttf', 55)
 
-    # ----- 文字内容 -----
-    # 以下坐标基于示例图片大致估算，请根据你的模板微调
-    # 姓名
+    # 文字位置（根据示例图片调整，如需要请修改坐标）
     draw.text((450, 280), name, font=font, fill=(0, 0, 0))
+    draw.text((450, 380), gender, font=font, fill=(0, 0, 0))
+    draw.text((650, 380), " " + nation, font=font, fill=(0, 0, 0))  # 性别与民族同排
 
-    # 性别 + 民族（同一行，先画性别，再画民族）
-    gender_text = gender
-    nation_text = nation
-    # 性别位置
-    draw.text((450, 380), gender_text, font=font, fill=(0, 0, 0))
-    # 民族位置（在性别右侧，留间距）
-    draw.text((650, 380), " " + nation_text, font=font, fill=(0, 0, 0))  # 前面加空格分隔
-
-    # 出生日期
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = f"{year}年{month}月{day}日"
     draw.text((450, 480), birth_str, font=font, fill=(0, 0, 0))
 
-    # 身份证号码（单独一行，在“身份证号码”标签下方）
     draw.text((450, 600), id_card, font=font, fill=(0, 0, 0))
 
-    # 户口地址（自动换行，每行最多11个汉字，示例中“四川省巴中地区”）
     address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     y_addr = 720
     for line in address_lines:
         draw.text((450, y_addr), line, font=font, fill=(0, 0, 0))
         y_addr += 70
 
-    # ----- 生成图片和PDF -----
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
@@ -350,14 +336,14 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 5. Telegram 命令（同步，v13 风格）
+# 5. Telegram 命令
 # ====================================================================
 def start(update, context):
     update.message.reply_text(
         "小宇：\n"
         "/hainansf +空格+身份证→查海南大头可选生成身份证\n"
-        "/sfz → 加工生成双面身份证·自动签发机关\n"
-        "/plc → 生成PLC模板·自动地址或者手动输入\n"
+        "/sfz → 加工生成双面身份证 · 自动签发机关\n"
+        "/plc → 生成 PLC 模板 · 自动地址或者手动输入\n"
         "/cancel → 取消当前操作"
     )
 
@@ -503,12 +489,12 @@ def sfz_photo(update, context):
     return ConversationHandler.END
 
 # ====================================================================
-# 5c. /plc 对话（增加民族输入，布局调整）
+# 5c. /plc 对话（增加民族输入，布局调整，按钮修复）
 # ====================================================================
 PLC_NAME, PLC_ID, PLC_NATION, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 16)
 
 def plc_start(update, context):
-    update.message.reply_text("📝 开始生成PLC身份证（新布局），请输入姓名：")
+    update.message.reply_text("📝 开始生成 PLC 身份证（新布局），请输入姓名：")
     return PLC_NAME
 
 def plc_name(update, context):
@@ -522,7 +508,6 @@ def plc_id(update, context):
         update.message.reply_text("格式错误，重新输入：")
         return PLC_ID
     context.user_data['id_number'] = id_card
-    # 自动识别性别（用于后续显示，但用户仍需输入民族）
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
     context.user_data['gender'] = gender
     update.message.reply_text(f"身份证识别性别：{gender}\n请输入民族：")
@@ -535,7 +520,6 @@ def plc_nation(update, context):
         return PLC_NATION
     context.user_data['nation'] = nation
 
-    # 地址处理（自动匹配或手动）
     id_card = context.user_data['id_number']
     address = get_address_from_idcard(id_card)
     if address:
@@ -573,6 +557,8 @@ def plc_addr_confirm_callback(update, context):
     elif data == "plc_addr_no":
         query.edit_message_text("请输入详细地址（手动输入）：")
         return PLC_ADDR_MANUAL
+    # 安全返回
+    return PLC_ADDR_MANUAL
 
 def plc_addr_manual(update, context):
     address = update.message.text.strip()
@@ -612,7 +598,7 @@ def plc_photo(update, context):
             filename=f"{data['name']}_PLC身份证.pdf"
         )
     except FileNotFoundError as e:
-        update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpg 和 10.ttf")
+        update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpeg 和 10.ttf")
     except Exception as e:
         update.message.reply_text(f"❌ 生成失败：{e}")
     finally:
@@ -648,7 +634,7 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话（新布局，包含民族）
+    # /plc 对话（新布局，包含民族，按钮修复）
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -663,7 +649,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC布局调整+民族）")
+    print("🤖 机器人已启动（PLC布局调整+民族，模板使用mb.jpeg，按钮已修复）")
     updater.start_polling()
     updater.idle()
 
