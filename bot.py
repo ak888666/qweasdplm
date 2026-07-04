@@ -1,36 +1,32 @@
 #!/usr/bin/env python3
 import sys
-print("===== 最小化测试版 (修复事件循环) =====")
+print("===== 极简测试版 (Updater 同步方式) =====")
 
-import asyncio
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Updater, CommandHandler
 
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"   # 只改这一个
+# ============================================================
+# 只修改这一行：填你的 Bot Token
+# ============================================================
+BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update, context):
+    update.message.reply_text(
         "👋 测试版命令：\n"
         "/plc → 测试命令（回复一条消息）\n"
         "如果这个命令出现了，说明机器人启动正常。"
     )
 
-async def plc_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ /plc 命令已识别！这是测试回复。")
+def plc_test(update, context):
+    update.message.reply_text("✅ /plc 命令已识别！这是测试回复。")
 
-async def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('plc', plc_test))
+def main():
+    updater = Updater(BOT_TOKEN)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("plc", plc_test))
     print("🤖 测试机器人已启动，正在轮询...")
-    await app.run_polling()
+    updater.start_polling()
+    updater.idle()  # 保持运行，直到按 Ctrl+C
 
-if __name__ == '__main__':
-    # 改用 get_event_loop().run_until_complete 避免事件循环冲突
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        print("手动中断")
-    finally:
-        loop.close()
+if __name__ == "__main__":
+    main()
