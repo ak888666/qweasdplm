@@ -32,7 +32,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================================
 #  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
 # ============================================================
-BOT_TOKEN = "5849383582:AAF7VKPb6rzyv0Xk5AL2YypQxunktRaTJHw"
+BOT_TOKEN = "5849383582:AAEpIwWbfarF13XYV5czaMK7lVG_Vlm156I"
 
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
