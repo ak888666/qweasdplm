@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC坐标已调优) =====")
+print("===== Bot 三功能完整版 (PLC间距优化) =====")
 
 import os
 import time
@@ -243,30 +243,30 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（坐标集中配置，可自由调整）
+# 4. 生成功能2：/plc（坐标集中配置，大幅增加间距）
 # ====================================================================
 
-# ---------- PLC 坐标参数（修改这些数字即可调整位置） ----------
+# ---------- PLC 坐标参数（可根据实际模板调整） ----------
 PLC_COORDS = {
-    'avatar_x': 50,       # 头像左上角 x
-    'avatar_y': 150,      # 头像左上角 y
-    'avatar_w': 400,      # 头像宽度
-    'avatar_h': 480,      # 头像高度
-    'name_x': 470,        # 姓名 x
-    'name_y': 280,        # 姓名 y
-    'gender_x': 470,      # 性别 x
-    'gender_y': 390,      # 性别 y
-    'nation_x': 670,      # 民族 x
-    'nation_y': 390,      # 民族 y（与性别同一行）
-    'birth_x': 470,       # 出生日期 x
-    'birth_y': 500,       # 出生日期 y
-    'id_x': 470,          # 身份证号 x
-    'id_y': 610,          # 身份证号 y
-    'addr_x': 470,        # 户口地址 x
-    'addr_y': 720,        # 户口地址 第一行 y
-    'addr_line_spacing': 65,   # 地址行间距
-    'addr_max_chars': 12,      # 地址每行最多字数
-    'font_size': 55,      # 字体大小
+    'avatar_x': 50,
+    'avatar_y': 150,
+    'avatar_w': 400,
+    'avatar_h': 480,
+    'name_x': 470,
+    'name_y': 330,        # 姓名位置下移
+    'gender_x': 470,
+    'gender_y': 450,      # 性别下移
+    'nation_x': 670,
+    'nation_y': 450,      # 民族与性别同行
+    'birth_x': 470,
+    'birth_y': 570,       # 出生日期下移
+    'id_x': 470,
+    'id_y': 690,          # 身份证号下移
+    'addr_x': 470,
+    'addr_y': 810,        # 地址第一行下移
+    'addr_line_spacing': 75,  # 地址行距加大
+    'addr_max_chars': 12,
+    'font_size': 48,      # 字体稍微缩小
 }
 # --------------------------------------------------------------
 
@@ -298,9 +298,6 @@ def get_address_from_idcard(id_card):
     return AREA_MAP.get(prefix, None)
 
 def generate_plc_sync(name, id_card, nation, address, avatar_path):
-    """
-    使用 PLC_COORDS 中的坐标生成身份证
-    """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
@@ -312,7 +309,7 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
 
     template = Image.open(template_path).convert("RGBA")
-    c = PLC_COORDS  # 简化引用
+    c = PLC_COORDS
 
     # 粘贴头像
     avatar = Image.open(avatar_path).convert("RGBA")
@@ -335,13 +332,11 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
 
     draw.text((c['id_x'], c['id_y']), id_card, font=font, fill=(0, 0, 0))
 
-    # 地址换行
     max_chars = c['addr_max_chars']
     address_lines = [address[i:i+max_chars] for i in range(0, len(address), max_chars)]
     for i, line in enumerate(address_lines):
         draw.text((c['addr_x'], c['addr_y'] + i * c['addr_line_spacing']), line, font=font, fill=(0, 0, 0))
 
-    # 生成图片和PDF
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
@@ -361,7 +356,7 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 5. Telegram 命令
+# 5. Telegram 命令（不变）
 # ====================================================================
 def start(update, context):
     update.message.reply_text(
@@ -650,7 +645,6 @@ def main():
     dp.add_handler(CommandHandler("cancel", cancel))
     dp.add_handler(CallbackQueryHandler(hainansf_callback, pattern='^hainansf_'))
 
-    # /sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -665,7 +659,6 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -680,7 +673,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC坐标集中配置，可轻松调整）")
+    print("🤖 机器人已启动（PLC间距优化，文字不再重叠）")
     updater.start_polling()
     updater.idle()
 
