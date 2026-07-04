@@ -1,6 +1,7 @@
+
 #!/usr/bin/env python3
 import sys
-print("===== 极简测试版 (Updater 同步方式) =====")
+print("===== 同步版测试 (Updater v13) =====")
 
 from telegram.ext import Updater, CommandHandler
 
@@ -26,7 +27,7 @@ def main():
     dp.add_handler(CommandHandler("plc", plc_test))
     print("🤖 测试机器人已启动，正在轮询...")
     updater.start_polling()
-    updater.idle()  # 保持运行，直到按 Ctrl+C
+    updater.idle()
 
 if __name__ == "__main__":
     main()
