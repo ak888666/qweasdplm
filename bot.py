@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 三功能完整版 (PLC坐标已调) =====")
+print("===== Bot 三功能完整版 (PLC坐标已调优) =====")
 
 import os
 import time
@@ -243,8 +243,33 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 4. 生成功能2：/plc（使用 mb.jpeg 模板，坐标已优化）
+# 4. 生成功能2：/plc（坐标集中配置，可自由调整）
 # ====================================================================
+
+# ---------- PLC 坐标参数（修改这些数字即可调整位置） ----------
+PLC_COORDS = {
+    'avatar_x': 50,       # 头像左上角 x
+    'avatar_y': 150,      # 头像左上角 y
+    'avatar_w': 400,      # 头像宽度
+    'avatar_h': 480,      # 头像高度
+    'name_x': 470,        # 姓名 x
+    'name_y': 280,        # 姓名 y
+    'gender_x': 470,      # 性别 x
+    'gender_y': 390,      # 性别 y
+    'nation_x': 670,      # 民族 x
+    'nation_y': 390,      # 民族 y（与性别同一行）
+    'birth_x': 470,       # 出生日期 x
+    'birth_y': 500,       # 出生日期 y
+    'id_x': 470,          # 身份证号 x
+    'id_y': 610,          # 身份证号 y
+    'addr_x': 470,        # 户口地址 x
+    'addr_y': 720,        # 户口地址 第一行 y
+    'addr_line_spacing': 65,   # 地址行间距
+    'addr_max_chars': 12,      # 地址每行最多字数
+    'font_size': 55,      # 字体大小
+}
+# --------------------------------------------------------------
+
 def load_area_map():
     area_map = {}
     file_path = 'plc/地区.txt'
@@ -274,7 +299,7 @@ def get_address_from_idcard(id_card):
 
 def generate_plc_sync(name, id_card, nation, address, avatar_path):
     """
-    生成 PLC 模板身份证，坐标已针对常见模板调整。
+    使用 PLC_COORDS 中的坐标生成身份证
     """
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
@@ -287,65 +312,34 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
 
     template = Image.open(template_path).convert("RGBA")
-
-    # ---------- 坐标参数（根据实际模板微调） ----------
-    # 头像位置（左上角）
-    AVATAR_X = 70
-    AVATAR_Y = 180
-    AVATAR_W = 416
-    AVATAR_H = 500
-
-    # 姓名
-    NAME_X = 470
-    NAME_Y = 300
-
-    # 性别（单独）
-    GENDER_X = 470
-    GENDER_Y = 410
-
-    # 民族（性别右侧，留间距）
-    NATION_X = 680
-    NATION_Y = 410
-
-    # 出生日期
-    BIRTH_X = 470
-    BIRTH_Y = 520
-
-    # 身份证号码
-    ID_X = 470
-    ID_Y = 640
-
-    # 户口地址（起始位置）
-    ADDR_X = 470
-    ADDR_Y = 760
-    ADDR_LINE_SPACING = 70
-    ADDR_MAX_CHARS_PER_LINE = 11
-    # ---------- 坐标结束 ----------
+    c = PLC_COORDS  # 简化引用
 
     # 粘贴头像
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
-    avatar = avatar.resize((AVATAR_W, AVATAR_H))
-    template.paste(avatar, (AVATAR_X, AVATAR_Y), mask=avatar)
+    avatar = avatar.resize((c['avatar_w'], c['avatar_h']))
+    template.paste(avatar, (c['avatar_x'], c['avatar_y']), mask=avatar)
 
     draw = ImageDraw.Draw(template)
-    font = ImageFont.truetype('plc/10.ttf', 55)
+    font = ImageFont.truetype('plc/10.ttf', c['font_size'])
 
-    draw.text((NAME_X, NAME_Y), name, font=font, fill=(0, 0, 0))
-    draw.text((GENDER_X, GENDER_Y), gender, font=font, fill=(0, 0, 0))
-    draw.text((NATION_X, NATION_Y), nation, font=font, fill=(0, 0, 0))
+    draw.text((c['name_x'], c['name_y']), name, font=font, fill=(0, 0, 0))
+    draw.text((c['gender_x'], c['gender_y']), gender, font=font, fill=(0, 0, 0))
+    draw.text((c['nation_x'], c['nation_y']), nation, font=font, fill=(0, 0, 0))
 
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = f"{year}年{month}月{day}日"
-    draw.text((BIRTH_X, BIRTH_Y), birth_str, font=font, fill=(0, 0, 0))
+    draw.text((c['birth_x'], c['birth_y']), birth_str, font=font, fill=(0, 0, 0))
 
-    draw.text((ID_X, ID_Y), id_card, font=font, fill=(0, 0, 0))
+    draw.text((c['id_x'], c['id_y']), id_card, font=font, fill=(0, 0, 0))
 
-    address_lines = [address[i:i+ADDR_MAX_CHARS_PER_LINE] for i in range(0, len(address), ADDR_MAX_CHARS_PER_LINE)]
+    # 地址换行
+    max_chars = c['addr_max_chars']
+    address_lines = [address[i:i+max_chars] for i in range(0, len(address), max_chars)]
     for i, line in enumerate(address_lines):
-        draw.text((ADDR_X, ADDR_Y + i * ADDR_LINE_SPACING), line, font=font, fill=(0, 0, 0))
+        draw.text((c['addr_x'], c['addr_y'] + i * c['addr_line_spacing']), line, font=font, fill=(0, 0, 0))
 
     # 生成图片和PDF
     img_bytes = io.BytesIO()
@@ -353,14 +347,14 @@ def generate_plc_sync(name, id_card, nation, address, avatar_path):
     img_bytes.seek(0)
 
     pdf_bytes = io.BytesIO()
-    c = canvas.Canvas(pdf_bytes, pagesize=A4)
+    c_canvas = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
     scale = min(A4[0]/w, A4[1]/h)
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
         tmp_path = tmp.name
         template.save(tmp_path, format='PNG')
-    c.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
-    c.save()
+    c_canvas.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale)
+    c_canvas.save()
     pdf_bytes.seek(0)
     os.remove(tmp_path)
 
@@ -686,7 +680,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动（PLC坐标已优化）")
+    print("🤖 机器人已启动（PLC坐标集中配置，可轻松调整）")
     updater.start_polling()
     updater.idle()
 
