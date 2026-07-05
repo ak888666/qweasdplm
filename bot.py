@@ -22,17 +22,11 @@ from telegram.ext import (
     MessageHandler, Filters, CallbackQueryHandler
 )
 
-# ---------- 禁用 SSL 警告 ----------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ============================================================
-#  ⚠️ Telegram Bot Token
-# ============================================================
 BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
-# ============================================================
-#  ⚠️ 海南系统配置（请替换为真实值）
-# ============================================================
+# ---------- 海南配置（请替换真实值） ----------
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
@@ -139,13 +133,11 @@ def query_id_card_sync(id_card):
             time.sleep(2)
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ============================================================
-#  ⚠️ 湖北查询功能（/hb）— 纯 Python AES-ECB，无外部加密依赖
-# ============================================================
+# ========== 湖北查询（纯 Python AES，无任何外部加密库）==========
 HB_KEY = b"ZBYSC2SGOYBVVHUZ"
 HB_HOST = "scjg.hubei.gov.cn"
 
-# ---------- 手动 AES-128-ECB 实现 ----------
+# ---------- 手动 AES-128-ECB ----------
 Sbox = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -318,7 +310,6 @@ def aes_ecb_decrypt(encrypted_data: str, key: bytes = HB_KEY) -> str:
         return None
 
 def query_hubei(idcard: str):
-    """查询湖北市场监管证照，使用域名，纯 Python AES"""
     list_api = f"https://{HB_HOST}/hbzhspyzw/sc/xzspMain/api/dynamicFileRecord/listInternetFile"
     list_headers = {
         "Host": HB_HOST,
@@ -338,7 +329,6 @@ def query_hubei(idcard: str):
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     }
-
     payload_plain = json.dumps({
         "type": "",
         "CertificateType": "",
@@ -346,17 +336,14 @@ def query_hubei(idcard: str):
         "holdCode": idcard,
         "operName": ""
     }, separators=(',', ':'))
-
     encrypt_body = aes_ecb_encrypt(payload_plain)
     req_body = json.dumps({"encryptBody": encrypt_body}, separators=(',', ':'))
-
     try:
         resp = requests.post(list_api, headers=list_headers, data=req_body.encode("utf-8"),
                              timeout=30, verify=False)
         resp.raise_for_status()
         print(f"响应状态码: {resp.status_code}")
         print(f"响应内容前200字符: {resp.text[:200]}")
-
         decrypted_text = aes_ecb_decrypt(resp.text)
         if decrypted_text is None:
             return False, "解密响应失败"
@@ -368,8 +355,6 @@ def query_hubei(idcard: str):
             return False, "该身份证无证照记录"
     except Exception as e:
         return False, f"请求异常：{e}"
-
-    # 下载所有证照
     results = []
     session = requests.Session()
     for i, item in enumerate(data_list, 1):
@@ -377,7 +362,6 @@ def query_hubei(idcard: str):
         cert_name = item.get("certificateType", f"证照_{i}")
         if not cert_id:
             continue
-
         dl_url = f"https://{HB_HOST}/hbonething/web/file/download?fileId={cert_id}&filename=1.jpg"
         dl_headers = {
             "Host": "zwfw.hubei.gov.cn",
@@ -398,14 +382,11 @@ def query_hubei(idcard: str):
                 print(f"下载证照 {cert_id} 失败，HTTP {resp.status_code}")
         except Exception as e:
             print(f"下载证照 {cert_id} 异常：{e}")
-
     if not results:
         return False, "未获取到任何证照图片"
     return True, results
 
-# ============================================================
-#  通用去白底函数
-# ============================================================
+# ========== 去白底 ==========
 def remove_white_background(img, threshold=240):
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
@@ -420,9 +401,7 @@ def remove_white_background(img, threshold=240):
     img.putdata(new_data)
     return img
 
-# ============================================================
-#  /sfz 生成身份证
-# ============================================================
+# ========== 生成身份证（/sfz）==========
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -448,16 +427,13 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
         raise ValueError("身份证号码格式不正确")
     birth_date = id_number[6:14]
     gender = '女' if int(id_number[-2]) % 2 == 0 else '男'
-
     issuing_authority_map = load_issuing_authority_map('fonts/签发机关.txt')
     issuing_authority = get_issuing_authority(id_number, issuing_authority_map)
-
     template = Image.open('fonts/empty.png').convert("RGBA")
     name_font = ImageFont.truetype('fonts/hei.ttf', 72)
     other_font = ImageFont.truetype('fonts/hei.ttf', 64)
     birth_font = ImageFont.truetype('fonts/fzhei.ttf', 60)
     id_font = ImageFont.truetype('fonts/ocrb10bt.ttf', 90)
-
     draw = ImageDraw.Draw(template)
     draw.text((630, 690), name, font=name_font, fill='black')
     draw.text((630, 840), gender, font=other_font, fill='black')
@@ -465,29 +441,23 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     draw.text((630, 975), birth_date[:4], font=birth_font, fill='black')
     draw.text((950, 975), birth_date[4:6], font=birth_font, fill='black')
     draw.text((1150, 975), birth_date[6:], font=birth_font, fill='black')
-
     y = 1115
     for line in format_address(address):
         draw.text((630, y), line, font=other_font, fill='black')
         y += 85
-
     draw.text((900, 1475), id_number, font=id_font, fill='black')
     draw.text((1050, 2750), issuing_authority, font=other_font, fill='black')
     draw.text((1050, 2895), expiration_date, font=other_font, fill='black')
-
     photo = Image.open(user_photo_path).convert("RGBA")
     photo = remove_white_background(photo, threshold=240)
     photo = photo.resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
-
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
-
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
         tmp_img_path = tmp_img.name
         template.save(tmp_img_path, format='PNG')
-
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -496,12 +466,9 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_img_path)
-
     return img_bytes, pdf_bytes
 
-# ============================================================
-#  /plc 生成PLC模板
-# ============================================================
+# ========== 生成PLC（/plc）==========
 def load_area_map():
     area_map = {}
     file_path = 'plc/地区.txt'
@@ -533,39 +500,31 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
-
     if not os.path.exists('plc/mb.jpg'):
         raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
-
     template = Image.open('plc/mb.jpg').convert("RGBA")
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
     avatar = avatar.resize((416, 500))
     template.paste(avatar, (26, 333), mask=avatar)
-
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', 55)
-
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = year + "年" + month + "月" + day + "日"
-
     draw.text((598, 314), name, font=font, fill=(0, 0, 0))
     draw.text((598, 398), gender, font=font, fill=(0, 0, 0))
     draw.text((474, 641), id_card, font=font, fill=(0, 0, 0))
     draw.text((718, 482), birth_str, font=font, fill=(0, 0, 0))
-
     address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     for i, line in enumerate(address_lines):
         draw.text((473, 782 + i * 60), line, font=font, fill=(0, 0, 0))
-
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
-
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -577,12 +536,9 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_path)
-
     return img_bytes, pdf_bytes
 
-# ============================================================
-#  Telegram 入口命令
-# ============================================================
+# ========== Telegram 命令 ==========
 def start(update, context):
     update.message.reply_text(
         "小宇：\n"
@@ -689,12 +645,10 @@ def sfz_photo(update, context):
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
         file.download(tmp.name)
         photo_path = tmp.name
-
     data = context.user_data
     if not all(k in data for k in ['name','id_number','nation','address','expiry']):
         update.message.reply_text("信息不完整，请重新 /sfz")
         return ConversationHandler.END
-
     update.message.reply_text("⏳ 生成中...")
     try:
         img, pdf = generate_id_card_sync(
@@ -733,7 +687,6 @@ def plc_id(update, context):
         update.message.reply_text("格式错误，重新输入：")
         return PLC_ID
     context.user_data['id_number'] = id_card
-
     address = get_address_from_idcard(id_card)
     if address:
         context.user_data['auto_addr'] = address
@@ -789,12 +742,10 @@ def plc_photo(update, context):
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
         file.download(tmp.name)
         photo_path = tmp.name
-
     data = context.user_data
     if not all(k in data for k in ['name','id_number','address']):
         update.message.reply_text("信息不完整，请重新 /plc")
         return ConversationHandler.END
-
     update.message.reply_text("⏳ 生成中...")
     try:
         img, pdf = generate_plc_sync(
@@ -816,9 +767,7 @@ def plc_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ============================================================
-#  主程序
-# ============================================================
+# ========== 主程序 ==========
 def main():
     print("🤖 正在启动机器人...")
     updater = Updater(BOT_TOKEN)
