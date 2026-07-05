@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 四功能完整版 (带 /gx 自动注册查询) =====")
+print("===== Bot 四功能完整版 (v2 修复验证码) =====")
 
 import os
 import time
@@ -434,37 +434,71 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ====================================================================
-# 5. 新增：/gx 自动注册并查询身份证（gxdlys 网站）
+# 5. 新增：/gx 自动注册并查询身份证（gxdlys 网站）——修复版
 # ====================================================================
 # ---------- 状态常量 ----------
 GX_PHONE, GX_WAIT_SMS = range(20, 22)
 
-# ---------- 辅助函数 ----------
+# ---------- 辅助函数（重试 + 初始化） ----------
 def gx_get_captcha():
-    """获取验证码并识别，返回 (code, uuid)"""
+    """获取验证码并识别，返回 (code, uuid)，失败返回 (None, None)"""
+    # 先访问首页，初始化 session（获取必要 cookie）
     try:
-        url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
-        resp = gx_session.get(url, headers=GX_HEADERS, timeout=10)
-        if resp.status_code != 200:
-            return None, None
-        data = resp.json()
-        if data.get("statusCode") != 200:
-            return None, None
-        img_b64 = data.get("data", {}).get("img")
-        uuid = data.get("data", {}).get("uuid")
-        if not img_b64 or not uuid:
-            return None, None
-        img_bytes = base64.b64decode(img_b64)
-        if ocr:
-            code = ocr.classification(img_bytes)
-            if code:
-                code = re.sub(r'[^A-Z0-9]', '', code.upper())
-                if len(code) == 4:
-                    return code, uuid
-        return None, None
-    except Exception as e:
-        print(f"[gx] 获取验证码失败: {e}")
-        return None, None
+        gx_session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=5)
+    except:
+        pass  # 忽略错误，即使访问失败也继续
+
+    for attempt in range(3):  # 最多重试 3 次
+        try:
+            url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
+            resp = gx_session.get(url, headers=GX_HEADERS, timeout=15)
+            if resp.status_code != 200:
+                print(f"[gx] 第{attempt+1}次：获取验证码 HTTP {resp.status_code}")
+                time.sleep(1)
+                continue
+
+            data = resp.json()
+            if data.get("statusCode") != 200:
+                print(f"[gx] 第{attempt+1}次：接口返回错误 {data.get('info', '未知')}")
+                time.sleep(1)
+                continue
+
+            img_b64 = data.get("data", {}).get("img")
+            uuid = data.get("data", {}).get("uuid")
+            if not img_b64 or not uuid:
+                print("[gx] 返回数据缺少 img 或 uuid")
+                time.sleep(1)
+                continue
+
+            img_bytes = base64.b64decode(img_b64)
+
+            # 使用 ddddocr 识别
+            if ocr:
+                code = ocr.classification(img_bytes)
+                if code:
+                    code = re.sub(r'[^A-Z0-9]', '', code.upper())
+                    if len(code) == 4:
+                        print(f"[gx] 验证码识别成功：{code}")
+                        return code, uuid
+                    else:
+                        print(f"[gx] 识别结果长度异常（{len(code)}），内容：{code}")
+                else:
+                    print("[gx] ddddocr 识别为空")
+            else:
+                print("[gx] ddddocr 未加载，无法识别")
+
+            # 如果识别失败，保存图片以便调试（可选）
+            # with open(f"captcha_debug_{int(time.time())}.png", "wb") as f:
+            #     f.write(img_bytes)
+
+            time.sleep(1)
+        except Exception as e:
+            print(f"[gx] 第{attempt+1}次异常：{e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(1)
+
+    return None, None
 
 def gx_send_sms(phone, captcha_code, uuid):
     """发送短信验证码"""
@@ -696,7 +730,7 @@ def gx_cancel(update, context):
 def start(update, context):
     update.message.reply_text(
         "小宇：\n"
-        "/hainansf +空格+身份证→查询海南大头\n"
+        "/hainansf +空格+ 身份证→查询海南大头\n"
         "/sfz → 生成双面身份证·自动签发机关\n"
         "/plc → 生成PLC模板自动地址·按钮确认或手动输入\n"
         "/gx 姓名 身份证号 → 自动注册并查询身份证（gxdlys）\n"
