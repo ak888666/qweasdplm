@@ -29,7 +29,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================================
 #  ⚠️ Telegram Bot Token
 # ============================================================
-BOT_TOKEN = "5849383582:AAHKD-K_erbIyYzMT7Oo09Oodxod6UkX6PE"
+BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
 # ============================================================
 #  ⚠️ 超级鹰配置（已填好你的信息）
