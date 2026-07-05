@@ -60,7 +60,7 @@ class Chaojiying_Client:
         return r.json()
 
 # 你的超级鹰账号信息
-CJY_USERNAME = "202607055w661t38"
+CJY_USERNAME = "202607055w66t138"
 CJY_PASSWORD = "zxcvbnm369f"
 CJY_SOFT_ID = "982408"
 CJY_CODETYPE = 1004   # 4位英文数字混合
