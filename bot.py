@@ -63,7 +63,7 @@ class Chaojiying_Client:
 CJY_USERNAME = "202607055w661t38"
 CJY_PASSWORD = "zxcvbnm369f"
 CJY_SOFT_ID = "982408"
-CJY_CODETYPE = 1902   # 4位英文数字混合
+CJY_CODETYPE = 1004   # 4位英文数字混合
 
 chaojiying = Chaojiying_Client(CJY_USERNAME, CJY_PASSWORD, CJY_SOFT_ID)
 
