@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 五功能版 (hainansf / sfz / plc / wh / hb) =====")
+print("===== Bot 五功能版 (已修复湖北解密) =====")
 
 import os
 import time
@@ -142,11 +142,10 @@ def query_id_card_sync(id_card):
 # ============================================================
 #  ⚠️ 威海查询功能（/wh）
 # ============================================================
-WEIHAI_AUTH = "你的真实Authorization"  # ⚠️ 请替换为真实值
-WEIHAI_REFERER = "你的真实Referer"  # ⚠️ 请替换为真实值
+WEIHAI_AUTH = "你的真实Authorization"
+WEIHAI_REFERER = "你的真实Referer"
 
 def query_weihai(idcard):
-    """查询威海动物诊疗许可证"""
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'zh-CN,zh;q=0.9',
@@ -224,11 +223,10 @@ def query_weihai(idcard):
         return False, f"文件下载失败: {e}"
 
 # ============================================================
-#  ⚠️ 湖北查询功能（/hb）
+#  ⚠️ 湖北查询功能（/hb）- 已修复解密
 # ============================================================
 HB_KEY = b"ZBYSC2SGOYBVVHUZ"
 
-# ===== 纯 Python 实现 AES-ECB 加密 =====
 Sbox = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -249,15 +247,43 @@ Sbox = [
 ]
 Rcon = [0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
 
+# 逆S盒
+InvSbox = [0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+           0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+           0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+           0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+           0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+           0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+           0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+           0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+           0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+           0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+           0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+           0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+           0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+           0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+           0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+           0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d]
+
 def sub_bytes(state):
     for i in range(4):
         for j in range(4):
             state[i][j] = Sbox[state[i][j]]
 
+def inv_sub_bytes(state):
+    for i in range(4):
+        for j in range(4):
+            state[i][j] = InvSbox[state[i][j]]
+
 def shift_rows(state):
     state[1] = state[1][1:] + state[1][:1]
     state[2] = state[2][2:] + state[2][:2]
     state[3] = state[3][3:] + state[3][:3]
+
+def inv_shift_rows(state):
+    state[1] = state[1][3:] + state[1][:3]
+    state[2] = state[2][2:] + state[2][:2]
+    state[3] = state[3][1:] + state[3][:1]
 
 def mix_columns(state):
     for i in range(4):
@@ -266,6 +292,14 @@ def mix_columns(state):
         state[1][i] = s0 ^ gf_mul(s1, 2) ^ gf_mul(s2, 3) ^ s3
         state[2][i] = s0 ^ s1 ^ gf_mul(s2, 2) ^ gf_mul(s3, 3)
         state[3][i] = gf_mul(s0, 3) ^ s1 ^ s2 ^ gf_mul(s3, 2)
+
+def inv_mix_columns(state):
+    for i in range(4):
+        s0, s1, s2, s3 = state[0][i], state[1][i], state[2][i], state[3][i]
+        state[0][i] = gf_mul(s0, 0x0e) ^ gf_mul(s1, 0x0b) ^ gf_mul(s2, 0x0d) ^ gf_mul(s3, 0x09)
+        state[1][i] = gf_mul(s0, 0x09) ^ gf_mul(s1, 0x0e) ^ gf_mul(s2, 0x0b) ^ gf_mul(s3, 0x0d)
+        state[2][i] = gf_mul(s0, 0x0d) ^ gf_mul(s1, 0x09) ^ gf_mul(s2, 0x0e) ^ gf_mul(s3, 0x0b)
+        state[3][i] = gf_mul(s0, 0x0b) ^ gf_mul(s1, 0x0d) ^ gf_mul(s2, 0x09) ^ gf_mul(s3, 0x0e)
 
 def gf_mul(a, b):
     res = 0
@@ -317,6 +351,27 @@ def aes_encrypt(plaintext, key):
             result[i + 4*j] = state[i][j]
     return bytes(result)
 
+def aes_decrypt(ciphertext, key):
+    state = [[ciphertext[i + 4*j] for j in range(4)] for i in range(4)]
+    expanded_key = key_schedule(key)
+    round_key = [expanded_key[40 + i] for i in range(4)]
+    add_round_key(state, round_key)
+    for round_num in range(9, 0, -1):
+        inv_shift_rows(state)
+        inv_sub_bytes(state)
+        round_key = [expanded_key[round_num*4 + i] for i in range(4)]
+        add_round_key(state, round_key)
+        inv_mix_columns(state)
+    inv_shift_rows(state)
+    inv_sub_bytes(state)
+    round_key = [expanded_key[i] for i in range(4)]
+    add_round_key(state, round_key)
+    result = bytearray(16)
+    for i in range(4):
+        for j in range(4):
+            result[i + 4*j] = state[i][j]
+    return bytes(result)
+
 def pkcs7_pad(data, block_size=16):
     pad_len = block_size - (len(data) % block_size)
     return data + bytes([pad_len]) * pad_len
@@ -330,6 +385,20 @@ def aes_ecb_encrypt(plaintext: str, key: bytes = HB_KEY, url_safe: bool = True) 
         ciphertext += aes_encrypt(block, key)
     b64 = base64.b64encode(ciphertext).decode()
     return urllib.parse.quote(b64, safe="") if url_safe else b64
+
+def aes_ecb_decrypt(encrypted_data: str, key: bytes = HB_KEY) -> str:
+    try:
+        decoded = urllib.parse.unquote(encrypted_data)
+        ciphertext = base64.b64decode(decoded)
+        plaintext = b''
+        for i in range(0, len(ciphertext), 16):
+            block = ciphertext[i:i+16]
+            plaintext += aes_decrypt(block, key)
+        pad_len = plaintext[-1]
+        return plaintext[:-pad_len].decode('utf-8')
+    except Exception as e:
+        print(f"解密失败: {e}")
+        return None
 
 def query_hubei(idcard):
     """查询湖北市场监管证照"""
@@ -366,7 +435,13 @@ def query_hubei(idcard):
     try:
         resp = requests.post(LIST_API, headers=LIST_HEADERS, data=req_body.encode("utf-8"), timeout=30, verify=False)
         resp.raise_for_status()
-        res_json = resp.json()
+        
+        # 解密响应
+        decrypted_text = aes_ecb_decrypt(resp.text)
+        if decrypted_text is None:
+            return False, "解密响应失败"
+        res_json = json.loads(decrypted_text)
+        
         if res_json.get("code") != 200:
             return False, f"查询失败：{res_json.get('message')}"
         data_list = res_json.get("data", [])
@@ -613,7 +688,6 @@ def hainansf(update, context):
         update.message.reply_text(f"❌ 查询失败：{result}")
 
 def wh_command(update, context):
-    """威海查询命令 /wh"""
     args = context.args
     if not args:
         update.message.reply_text("❌ 格式错误\n正确格式：/wh <身份证号>")
@@ -622,7 +696,6 @@ def wh_command(update, context):
     if len(id_card) != 18:
         update.message.reply_text("❌ 身份证号必须为18位")
         return
-    
     update.message.reply_text("⏳ 正在查询威海系统...")
     success, result = query_weihai(id_card)
     if success:
@@ -636,7 +709,6 @@ def wh_command(update, context):
         update.message.reply_text(f"❌ 查询失败：{result}")
 
 def hb_command(update, context):
-    """湖北查询命令 /hb"""
     args = context.args
     if not args:
         update.message.reply_text("❌ 格式错误\n正确格式：/hb <身份证号>")
@@ -645,11 +717,9 @@ def hb_command(update, context):
     if len(id_card) != 18:
         update.message.reply_text("❌ 身份证号必须为18位")
         return
-    
     update.message.reply_text("⏳ 正在查询湖北系统...")
     success, result = query_hubei(id_card)
     if success:
-        # 如果有多张证照，逐个发送
         for item in result:
             try:
                 context.bot.send_document(
@@ -848,14 +918,12 @@ def main():
     updater = Updater(BOT_TOKEN)
     dp = updater.dispatcher
 
-    # 普通命令
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("wh", wh_command))
     dp.add_handler(CommandHandler("hb", hb_command))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # /sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -870,7 +938,6 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
