@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 四功能完整版 (超级鹰·增强超时) =====")
+print("===== Bot 四功能完整版 (超级鹰·增强日志) =====")
 
 import os
 import time
@@ -56,7 +56,7 @@ class Chaojiying_Client:
         params.update(self.base_params)
         files = {'userfile': ('captcha.jpg', im)}
         r = requests.post('http://upload.chaojiying.net/Upload/Processing.php', 
-                          data=params, files=files, headers=self.headers, timeout=30)
+                          data=params, files=files, headers=self.headers, timeout=60)  # 超时增加至60秒
         return r.json()
 
 # 你的超级鹰账号信息
@@ -198,12 +198,13 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
     return base64.b64encode(result).decode('utf-8')
 
 # ============================================================
-#  /gx 核心功能（使用超级鹰识别验证码，增强超时与日志）
+#  /gx 核心功能（使用超级鹰识别验证码，增强日志与超时）
 # ============================================================
 GX_PHONE, GX_WAIT_SMS = range(20, 22)
 
 def gx_get_captcha():
     """获取验证码，使用超级鹰识别，返回 (code, uuid)"""
+    print("[gx] ===== 进入 gx_get_captcha 函数 =====")  # 明确函数被调用
     # 初始化 session
     try:
         gx_session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=10)
@@ -215,7 +216,7 @@ def gx_get_captcha():
         try:
             print(f"[gx] 第{attempt+1}次尝试获取验证码...")
             url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
-            resp = gx_session.get(url, headers=GX_HEADERS, timeout=30)
+            resp = gx_session.get(url, headers=GX_HEADERS, timeout=60)  # 超时改为60秒
             if resp.status_code != 200:
                 print(f"[gx] 第{attempt+1}次：HTTP {resp.status_code}")
                 time.sleep(2)
@@ -253,6 +254,8 @@ def gx_get_captcha():
                 code = None
             except Exception as e:
                 print(f"[gx] 超级鹰调用异常: {e}")
+                import traceback
+                traceback.print_exc()
                 code = None
 
             if code:
@@ -391,6 +394,7 @@ def gx_download_photo(file_id):
 
 # ---------- /gx 对话处理 ----------
 def gx_start(update, context):
+    print("[gx] 收到 /gx 命令")  # 添加日志
     text = update.message.text
     match = re.match(r'/gx\s+(\S+)\s+(\S+)', text)
     if not match:
@@ -407,6 +411,7 @@ def gx_start(update, context):
     return GX_PHONE
 
 def gx_get_phone(update, context):
+    print("[gx] 进入 gx_get_phone")  # 添加日志
     phone = update.message.text.strip()
     if not re.match(r'^1\d{10}$', phone):
         update.message.reply_text("❌ 手机号格式不正确，请重新输入（11位数字）：")
@@ -414,8 +419,11 @@ def gx_get_phone(update, context):
     context.user_data['gx_phone'] = phone
 
     update.message.reply_text("⏳ 正在获取图形验证码并识别（超级鹰）...")
+    print("[gx] 准备调用 gx_get_captcha...")
     captcha_code, uuid = gx_get_captcha()
+    print(f"[gx] gx_get_captcha 返回: {captcha_code}, {uuid}")
     if not captcha_code or not uuid:
+        print("[gx] captcha_code 或 uuid 为空，返回失败")
         update.message.reply_text("❌ 获取验证码失败，请稍后重试。")
         return ConversationHandler.END
 
@@ -1030,7 +1038,7 @@ def main():
     )
     dp.add_handler(conv_gx)
 
-    print("🤖 机器人已启动（四功能完整版，验证码使用超级鹰，增强超时）")
+    print("🤖 机器人已启动（四功能完整版，验证码使用超级鹰，增强日志）")
     updater.start_polling(drop_pending_updates=True)
     updater.idle()
 
