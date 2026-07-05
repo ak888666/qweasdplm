@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 四功能版 (hainansf / sfz / plc / hb) =====")
+print("===== Bot 三功能完整版 (v13 带按钮确认) =====")
 
 import os
 import time
 import json
 import io
 import tempfile
-import re
-import base64
-import urllib.parse
 import requests
 import urllib3
 from PIL import Image, ImageDraw, ImageFont
@@ -24,9 +21,11 @@ from telegram.ext import (
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# ============================================================
+#  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
+# ============================================================
 BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
-# ---------- 海南配置（请替换真实值） ----------
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
@@ -34,10 +33,14 @@ BASE_COOKIES = {
     "SERVERID": "REPLACE_SERVERID_HERE",
 }
 ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
+
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
+# ====================================================================
+# 1. 查询功能（/hainansf）
+# ====================================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -45,9 +48,10 @@ HEADERS1 = {
     "zwfw-token": ZWFW_TOKEN,
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; MEIZU 21 Build/UKQ1.230917.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/141.0.7390.97 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp",
     "sec-ch-ua": "\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"",
-    "sec-ch-ua-mobile": "?1",
     "content-type": "application/json",
+    "sec-ch-ua-mobile": "?1",
     "Accept": "*/*",
+    "Origin": "https://zwfw.dn.haikou.gov.cn",
     "X-Requested-With": "com.hanweb.hnzwfw.android.activity",
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
@@ -133,260 +137,9 @@ def query_id_card_sync(id_card):
             time.sleep(2)
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ========== 湖北查询（纯 Python AES，无任何外部加密库）==========
-HB_KEY = b"ZBYSC2SGOYBVVHUZ"
-HB_HOST = "scjg.hubei.gov.cn"
-
-# ---------- 手动 AES-128-ECB ----------
-Sbox = [
-    0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
-    0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
-    0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
-    0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
-    0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
-    0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
-    0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
-    0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
-    0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
-    0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
-    0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
-    0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
-    0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
-    0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
-    0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
-    0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
-]
-Rcon = [0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
-InvSbox = [0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
-           0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
-           0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
-           0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2, 0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
-           0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16, 0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
-           0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda, 0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
-           0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a, 0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
-           0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02, 0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
-           0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea, 0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
-           0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85, 0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
-           0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89, 0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
-           0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20, 0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
-           0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31, 0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
-           0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d, 0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
-           0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
-           0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d]
-
-def sub_bytes(state):
-    for i in range(4):
-        for j in range(4):
-            state[i][j] = Sbox[state[i][j]]
-
-def inv_sub_bytes(state):
-    for i in range(4):
-        for j in range(4):
-            state[i][j] = InvSbox[state[i][j]]
-
-def shift_rows(state):
-    state[1] = state[1][1:] + state[1][:1]
-    state[2] = state[2][2:] + state[2][:2]
-    state[3] = state[3][3:] + state[3][:3]
-
-def inv_shift_rows(state):
-    state[1] = state[1][3:] + state[1][:3]
-    state[2] = state[2][2:] + state[2][:2]
-    state[3] = state[3][1:] + state[3][:1]
-
-def mix_columns(state):
-    for i in range(4):
-        s0, s1, s2, s3 = state[0][i], state[1][i], state[2][i], state[3][i]
-        state[0][i] = gf_mul(s0, 2) ^ gf_mul(s1, 3) ^ s2 ^ s3
-        state[1][i] = s0 ^ gf_mul(s1, 2) ^ gf_mul(s2, 3) ^ s3
-        state[2][i] = s0 ^ s1 ^ gf_mul(s2, 2) ^ gf_mul(s3, 3)
-        state[3][i] = gf_mul(s0, 3) ^ s1 ^ s2 ^ gf_mul(s3, 2)
-
-def inv_mix_columns(state):
-    for i in range(4):
-        s0, s1, s2, s3 = state[0][i], state[1][i], state[2][i], state[3][i]
-        state[0][i] = gf_mul(s0, 0x0e) ^ gf_mul(s1, 0x0b) ^ gf_mul(s2, 0x0d) ^ gf_mul(s3, 0x09)
-        state[1][i] = gf_mul(s0, 0x09) ^ gf_mul(s1, 0x0e) ^ gf_mul(s2, 0x0b) ^ gf_mul(s3, 0x0d)
-        state[2][i] = gf_mul(s0, 0x0d) ^ gf_mul(s1, 0x09) ^ gf_mul(s2, 0x0e) ^ gf_mul(s3, 0x0b)
-        state[3][i] = gf_mul(s0, 0x0b) ^ gf_mul(s1, 0x0d) ^ gf_mul(s2, 0x09) ^ gf_mul(s3, 0x0e)
-
-def gf_mul(a, b):
-    res = 0
-    for _ in range(8):
-        if b & 1:
-            res ^= a
-        hi = a & 0x80
-        a <<= 1
-        if hi:
-            a ^= 0x1b
-        b >>= 1
-    return res & 0xff
-
-def add_round_key(state, round_key):
-    for i in range(4):
-        for j in range(4):
-            state[i][j] ^= round_key[i][j]
-
-def key_schedule(key):
-    key_flat = [b for b in key]
-    expanded_key = [key_flat[i:i+4] for i in range(0, len(key_flat), 4)]
-    for i in range(4, 44):
-        temp = expanded_key[i-1][:]
-        if i % 4 == 0:
-            temp = temp[1:] + temp[:1]
-            temp = [Sbox[b] for b in temp]
-            temp[0] ^= Rcon[i//4]
-        expanded_key.append([expanded_key[i-4][j] ^ temp[j] for j in range(4)])
-    return expanded_key
-
-def aes_encrypt(plaintext, key):
-    state = [[plaintext[i + 4*j] for j in range(4)] for i in range(4)]
-    expanded_key = key_schedule(key)
-    round_key = [expanded_key[i] for i in range(4)]
-    add_round_key(state, round_key)
-    for round_num in range(1, 10):
-        sub_bytes(state)
-        shift_rows(state)
-        mix_columns(state)
-        round_key = [expanded_key[round_num*4 + i] for i in range(4)]
-        add_round_key(state, round_key)
-    sub_bytes(state)
-    shift_rows(state)
-    round_key = [expanded_key[40 + i] for i in range(4)]
-    add_round_key(state, round_key)
-    result = bytearray(16)
-    for i in range(4):
-        for j in range(4):
-            result[i + 4*j] = state[i][j]
-    return bytes(result)
-
-def aes_decrypt(ciphertext, key):
-    state = [[ciphertext[i + 4*j] for j in range(4)] for i in range(4)]
-    expanded_key = key_schedule(key)
-    round_key = [expanded_key[40 + i] for i in range(4)]
-    add_round_key(state, round_key)
-    for round_num in range(9, 0, -1):
-        inv_shift_rows(state)
-        inv_sub_bytes(state)
-        round_key = [expanded_key[round_num*4 + i] for i in range(4)]
-        add_round_key(state, round_key)
-        inv_mix_columns(state)
-    inv_shift_rows(state)
-    inv_sub_bytes(state)
-    round_key = [expanded_key[i] for i in range(4)]
-    add_round_key(state, round_key)
-    result = bytearray(16)
-    for i in range(4):
-        for j in range(4):
-            result[i + 4*j] = state[i][j]
-    return bytes(result)
-
-def pkcs7_pad(data, block_size=16):
-    pad_len = block_size - (len(data) % block_size)
-    return data + bytes([pad_len]) * pad_len
-
-def aes_ecb_encrypt(plaintext: str, key: bytes = HB_KEY, url_safe: bool = True) -> str:
-    plain_bytes = plaintext.encode('utf-8')
-    padded = pkcs7_pad(plain_bytes, 16)
-    ciphertext = b''
-    for i in range(0, len(padded), 16):
-        block = padded[i:i+16]
-        ciphertext += aes_encrypt(block, key)
-    b64 = base64.b64encode(ciphertext).decode()
-    return urllib.parse.quote(b64, safe="") if url_safe else b64
-
-def aes_ecb_decrypt(encrypted_data: str, key: bytes = HB_KEY) -> str:
-    try:
-        decoded = urllib.parse.unquote(encrypted_data)
-        ciphertext = base64.b64decode(decoded)
-        plaintext = b''
-        for i in range(0, len(ciphertext), 16):
-            block = ciphertext[i:i+16]
-            plaintext += aes_decrypt(block, key)
-        pad_len = plaintext[-1]
-        return plaintext[:-pad_len].decode('utf-8')
-    except Exception as e:
-        print(f"解密失败: {e}")
-        return None
-
-def query_hubei(idcard: str):
-    list_api = f"https://{HB_HOST}/hbzhspyzw/sc/xzspMain/api/dynamicFileRecord/listInternetFile"
-    list_headers = {
-        "Host": HB_HOST,
-        "Connection": "keep-alive",
-        "sec-ch-ua": '"Not A(Brand";v="99", "Android WebView";v="121", "Chromium";v="121"',
-        "isToken": "true",
-        "sec-ch-ua-mobile": "?1",
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; MI 8 Build/QKQ1.190828.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/121.0.6167.71 COVC/048603 Mobile Safari/537.36",
-        "Content-Type": "application/json;charset=UTF-8",
-        "Accept": "application/json, text/plain, */*",
-        "productItemClass": "",
-        "sec-ch-ua-platform": '"Android"',
-        "Origin": "https://scjg.hubei.gov.cn",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-    }
-    payload_plain = json.dumps({
-        "type": "",
-        "CertificateType": "",
-        "itemCode": "11420000MB1686999B2420131004W0014",
-        "holdCode": idcard,
-        "operName": ""
-    }, separators=(',', ':'))
-    encrypt_body = aes_ecb_encrypt(payload_plain)
-    req_body = json.dumps({"encryptBody": encrypt_body}, separators=(',', ':'))
-    try:
-        resp = requests.post(list_api, headers=list_headers, data=req_body.encode("utf-8"),
-                             timeout=30, verify=False)
-        resp.raise_for_status()
-        print(f"响应状态码: {resp.status_code}")
-        print(f"响应内容前200字符: {resp.text[:200]}")
-        decrypted_text = aes_ecb_decrypt(resp.text)
-        if decrypted_text is None:
-            return False, "解密响应失败"
-        res_json = json.loads(decrypted_text)
-        if res_json.get("code") != 200:
-            return False, f"查询失败：{res_json.get('message')}"
-        data_list = res_json.get("data", [])
-        if not data_list:
-            return False, "该身份证无证照记录"
-    except Exception as e:
-        return False, f"请求异常：{e}"
-    results = []
-    session = requests.Session()
-    for i, item in enumerate(data_list, 1):
-        cert_id = item.get("certificateID")
-        cert_name = item.get("certificateType", f"证照_{i}")
-        if not cert_id:
-            continue
-        dl_url = f"https://{HB_HOST}/hbonething/web/file/download?fileId={cert_id}&filename=1.jpg"
-        dl_headers = {
-            "Host": "zwfw.hubei.gov.cn",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "Connection": "keep-alive"
-        }
-        try:
-            resp = session.get(dl_url, headers=dl_headers, verify=False, timeout=30, stream=True)
-            if resp.status_code == 200:
-                results.append({
-                    "name": cert_name,
-                    "data": resp.content,
-                    "index": i
-                })
-            else:
-                print(f"下载证照 {cert_id} 失败，HTTP {resp.status_code}")
-        except Exception as e:
-            print(f"下载证照 {cert_id} 异常：{e}")
-    if not results:
-        return False, "未获取到任何证照图片"
-    return True, results
-
-# ========== 去白底 ==========
+# ====================================================================
+# 2. 通用去白底函数
+# ====================================================================
 def remove_white_background(img, threshold=240):
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
@@ -401,7 +154,9 @@ def remove_white_background(img, threshold=240):
     img.putdata(new_data)
     return img
 
-# ========== 生成身份证（/sfz）==========
+# ====================================================================
+# 3. 生成功能1：/sfz（使用 empty.png 模板）
+# ====================================================================
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -427,13 +182,16 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
         raise ValueError("身份证号码格式不正确")
     birth_date = id_number[6:14]
     gender = '女' if int(id_number[-2]) % 2 == 0 else '男'
+
     issuing_authority_map = load_issuing_authority_map('fonts/签发机关.txt')
     issuing_authority = get_issuing_authority(id_number, issuing_authority_map)
+
     template = Image.open('fonts/empty.png').convert("RGBA")
     name_font = ImageFont.truetype('fonts/hei.ttf', 72)
     other_font = ImageFont.truetype('fonts/hei.ttf', 64)
     birth_font = ImageFont.truetype('fonts/fzhei.ttf', 60)
     id_font = ImageFont.truetype('fonts/ocrb10bt.ttf', 90)
+
     draw = ImageDraw.Draw(template)
     draw.text((630, 690), name, font=name_font, fill='black')
     draw.text((630, 840), gender, font=other_font, fill='black')
@@ -441,23 +199,29 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     draw.text((630, 975), birth_date[:4], font=birth_font, fill='black')
     draw.text((950, 975), birth_date[4:6], font=birth_font, fill='black')
     draw.text((1150, 975), birth_date[6:], font=birth_font, fill='black')
+
     y = 1115
     for line in format_address(address):
         draw.text((630, y), line, font=other_font, fill='black')
         y += 85
+
     draw.text((900, 1475), id_number, font=id_font, fill='black')
     draw.text((1050, 2750), issuing_authority, font=other_font, fill='black')
     draw.text((1050, 2895), expiration_date, font=other_font, fill='black')
+
     photo = Image.open(user_photo_path).convert("RGBA")
     photo = remove_white_background(photo, threshold=240)
     photo = photo.resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
+
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
+
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
         tmp_img_path = tmp_img.name
         template.save(tmp_img_path, format='PNG')
+
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -466,9 +230,12 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_img_path)
+
     return img_bytes, pdf_bytes
 
-# ========== 生成PLC（/plc）==========
+# ====================================================================
+# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地址，带按钮确认）
+# ====================================================================
 def load_area_map():
     area_map = {}
     file_path = 'plc/地区.txt'
@@ -500,31 +267,39 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
+
     if not os.path.exists('plc/mb.jpg'):
         raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
+
     template = Image.open('plc/mb.jpg').convert("RGBA")
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
     avatar = avatar.resize((416, 500))
     template.paste(avatar, (26, 333), mask=avatar)
+
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', 55)
+
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = year + "年" + month + "月" + day + "日"
+
     draw.text((598, 314), name, font=font, fill=(0, 0, 0))
     draw.text((598, 398), gender, font=font, fill=(0, 0, 0))
     draw.text((474, 641), id_card, font=font, fill=(0, 0, 0))
     draw.text((718, 482), birth_str, font=font, fill=(0, 0, 0))
+
     address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     for i, line in enumerate(address_lines):
         draw.text((473, 782 + i * 60), line, font=font, fill=(0, 0, 0))
+
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
+
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -536,16 +311,18 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_path)
+
     return img_bytes, pdf_bytes
 
-# ========== Telegram 命令 ==========
+# ====================================================================
+# 5. Telegram 命令（同步，v13 风格）
+# ====================================================================
 def start(update, context):
     update.message.reply_text(
         "小宇：\n"
-        "/hainansf +空格+ 身份证→查询海南大头\n"
+        "/hainansf +空格+身份证→查询海南大头\n"
         "/sfz → 生成双面身份证·自动签发机关\n"
         "/plc → 生成PLC模板自动地址·按钮确认或手动输入\n"
-        "/hb 身份证号 → 查询湖北市场监管证照\n"
         "/cancel → 取消当前操作"
     )
 
@@ -570,37 +347,12 @@ def hainansf(update, context):
     else:
         update.message.reply_text(f"❌ 查询失败：{result}")
 
-def hb_command(update, context):
-    args = context.args
-    if not args:
-        update.message.reply_text("❌ 格式错误\n正确格式：/hb <身份证号>")
-        return
-    id_card = args[0].strip()
-    if len(id_card) != 18:
-        update.message.reply_text("❌ 身份证号必须为18位")
-        return
-    update.message.reply_text("⏳ 正在查询湖北系统...")
-    success, result = query_hubei(id_card)
-    if success:
-        for item in result:
-            try:
-                context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=io.BytesIO(item["data"]),
-                    filename=f"{id_card}_{item['name']}_{item['index']}.jpg",
-                    caption=f"✅ {item['name']} 下载成功"
-                )
-            except Exception as e:
-                update.message.reply_text(f"❌ 发送证照 {item['name']} 失败：{e}")
-    else:
-        update.message.reply_text(f"❌ 查询失败：{result}")
-
 def cancel(update, context):
     update.message.reply_text("已取消")
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /sfz 对话 =====
+# ===== /sfz 对话（同步） =====
 SFZ_NAME, SFZ_ID, SFZ_NATION, SFZ_ADDR, SFZ_EXPIRY, SFZ_PHOTO = range(6)
 
 def sfz_start(update, context):
@@ -645,10 +397,12 @@ def sfz_photo(update, context):
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
         file.download(tmp.name)
         photo_path = tmp.name
+
     data = context.user_data
     if not all(k in data for k in ['name','id_number','nation','address','expiry']):
         update.message.reply_text("信息不完整，请重新 /sfz")
         return ConversationHandler.END
+
     update.message.reply_text("⏳ 生成中...")
     try:
         img, pdf = generate_id_card_sync(
@@ -669,7 +423,7 @@ def sfz_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /plc 对话 =====
+# ===== /plc 对话（同步，带按钮确认地址） =====
 PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
@@ -687,6 +441,7 @@ def plc_id(update, context):
         update.message.reply_text("格式错误，重新输入：")
         return PLC_ID
     context.user_data['id_number'] = id_card
+
     address = get_address_from_idcard(id_card)
     if address:
         context.user_data['auto_addr'] = address
@@ -742,10 +497,12 @@ def plc_photo(update, context):
     with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
         file.download(tmp.name)
         photo_path = tmp.name
+
     data = context.user_data
     if not all(k in data for k in ['name','id_number','address']):
         update.message.reply_text("信息不完整，请重新 /plc")
         return ConversationHandler.END
+
     update.message.reply_text("⏳ 生成中...")
     try:
         img, pdf = generate_plc_sync(
@@ -767,17 +524,19 @@ def plc_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ========== 主程序 ==========
+# ====================================================================
+# 6. 主程序
+# ====================================================================
 def main():
-    print("🤖 正在启动机器人...")
     updater = Updater(BOT_TOKEN)
     dp = updater.dispatcher
 
+    # 普通命令
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
-    dp.add_handler(CommandHandler("hb", hb_command))
     dp.add_handler(CommandHandler("cancel", cancel))
 
+    # /sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -792,6 +551,7 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
+    # /plc 对话（带按钮确认）
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -805,11 +565,9 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    print("🤖 机器人已启动，开始轮询...")
-    updater.start_polling(drop_pending_updates=True)
-    print("🤖 进入 idle 状态，等待消息...")
+    print("🤖 机器人已启动（三功能完整版，PLC地址确认按钮已启用）")
+    updater.start_polling()
     updater.idle()
-    print("🤖 机器人已停止")
 
 if __name__ == "__main__":
     main()
