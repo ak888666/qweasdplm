@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 五功能版 (已修复湖北解密) =====")
+print("===== Bot 五功能版 (hainansf / sfz / plc / wh / hb) =====")
 
 import os
 import time
@@ -31,7 +31,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
 # ============================================================
-#  ⚠️ 海南系统配置
+#  ⚠️ 海南系统配置（请替换为真实值）
 # ============================================================
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
@@ -142,8 +142,8 @@ def query_id_card_sync(id_card):
 # ============================================================
 #  ⚠️ 威海查询功能（/wh）
 # ============================================================
-WEIHAI_AUTH = "你的真实Authorization"
-WEIHAI_REFERER = "你的真实Referer"
+WEIHAI_AUTH = "你的真实Authorization"  # ⚠️ 请替换为真实值
+WEIHAI_REFERER = "你的真实Referer"      # ⚠️ 请替换为真实值
 
 def query_weihai(idcard):
     headers = {
@@ -223,10 +223,13 @@ def query_weihai(idcard):
         return False, f"文件下载失败: {e}"
 
 # ============================================================
-#  ⚠️ 湖北查询功能（/hb）- 已修复解密
+#  ⚠️ 湖北查询功能（/hb）— 使用 IP 直连，已修复
 # ============================================================
 HB_KEY = b"ZBYSC2SGOYBVVHUZ"
+HUBEI_IP = "220.249.92.24"          # scjg.hubei.gov.cn 的 IP
+HUBEI_HOST = "scjg.hubei.gov.cn"    # 用于 Host 头
 
+# ===== AES 加密 / 解密函数 =====
 Sbox = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -247,7 +250,6 @@ Sbox = [
 ]
 Rcon = [0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
 
-# 逆S盒
 InvSbox = [0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
            0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
            0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
@@ -400,11 +402,20 @@ def aes_ecb_decrypt(encrypted_data: str, key: bytes = HB_KEY) -> str:
         print(f"解密失败: {e}")
         return None
 
+# ---------- 湖北查询主函数（使用 IP 直连） ----------
 def query_hubei(idcard):
-    """查询湖北市场监管证照"""
-    LIST_API = "https://scjg.hubei.gov.cn/hbzhspyzw/sc/xzspMain/api/dynamicFileRecord/listInternetFile"
-    LIST_HEADERS = {
-        "Host": "scjg.hubei.gov.cn",
+    """查询湖北市场监管证照（使用 IP 直连 + Host 头）"""
+    import socket
+    # 强制使用 IPv4
+    old_getaddrinfo = socket.getaddrinfo
+    def new_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+        return old_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+    socket.getaddrinfo = new_getaddrinfo
+
+    list_api = f"https://{HUBEI_IP}/hbzhspyzw/sc/xzspMain/api/dynamicFileRecord/listInternetFile"
+
+    list_headers = {
+        "Host": HUBEI_HOST,
         "Connection": "keep-alive",
         "sec-ch-ua": '"Not A(Brand";v="99", "Android WebView";v="121", "Chromium";v="121"',
         "isToken": "true",
@@ -421,7 +432,7 @@ def query_hubei(idcard):
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     }
-    
+
     payload_plain = json.dumps({
         "type": "",
         "CertificateType": "",
@@ -429,19 +440,25 @@ def query_hubei(idcard):
         "holdCode": idcard,
         "operName": ""
     }, separators=(',', ':'))
+
     encrypt_body = aes_ecb_encrypt(payload_plain)
     req_body = json.dumps({"encryptBody": encrypt_body}, separators=(',', ':'))
 
     try:
-        resp = requests.post(LIST_API, headers=LIST_HEADERS, data=req_body.encode("utf-8"), timeout=30, verify=False)
+        resp = requests.post(
+            list_api,
+            headers=list_headers,
+            data=req_body.encode("utf-8"),
+            timeout=30,
+            verify=False
+        )
         resp.raise_for_status()
-        
-        # 解密响应
+
         decrypted_text = aes_ecb_decrypt(resp.text)
         if decrypted_text is None:
             return False, "解密响应失败"
         res_json = json.loads(decrypted_text)
-        
+
         if res_json.get("code") != 200:
             return False, f"查询失败：{res_json.get('message')}"
         data_list = res_json.get("data", [])
@@ -457,18 +474,25 @@ def query_hubei(idcard):
         cert_name = item.get("certificateType", f"证照_{i}")
         if not cert_id:
             continue
-        
-        dl_url = f"https://zwfw.hubei.gov.cn/hbonething/web/file/download?fileId={cert_id}&filename=1.jpg"
+
+        dl_url = f"https://{HUBEI_IP}/hbonething/web/file/download?fileId={cert_id}&filename=1.jpg"
+        dl_headers = {
+            "Host": "zwfw.hubei.gov.cn",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Connection": "keep-alive"
+        }
         try:
-            resp = requests.get(dl_url, timeout=30, verify=False)
+            resp = requests.get(dl_url, headers=dl_headers, verify=False, timeout=30)
             if resp.status_code == 200:
                 results.append({
                     "name": cert_name,
                     "data": resp.content,
                     "index": i
                 })
-        except:
-            pass
+        except Exception as e:
+            print(f"下载证照 {cert_id} 失败：{e}")
 
     if not results:
         return False, "未获取到任何证照图片"
