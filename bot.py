@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 四功能完整版 (超级鹰·增强日志) =====")
+print("===== Bot 四功能完整版 (网络增强版) =====")
 
 import os
 import time
@@ -56,7 +56,7 @@ class Chaojiying_Client:
         params.update(self.base_params)
         files = {'userfile': ('captcha.jpg', im)}
         r = requests.post('http://upload.chaojiying.net/Upload/Processing.php', 
-                          data=params, files=files, headers=self.headers, timeout=60)  # 超时增加至60秒
+                          data=params, files=files, headers=self.headers, timeout=60)
         return r.json()
 
 # 你的超级鹰账号信息
@@ -66,13 +66,6 @@ CJY_SOFT_ID = "982408"
 CJY_CODETYPE = 1902   # 4位英文数字混合
 
 chaojiying = Chaojiying_Client(CJY_USERNAME, CJY_PASSWORD, CJY_SOFT_ID)
-
-# 测试超级鹰API连通性
-try:
-    test_resp = requests.get("http://upload.chaojiying.net", timeout=10)
-    print(f"[网络测试] 超级鹰API连通性: {test_resp.status_code}")
-except Exception as e:
-    print(f"[网络测试] 超级鹰API不可达: {e}")
 
 # ============================================================
 #  ⚠️ 海南系统配置（如不用可忽略）
@@ -198,85 +191,94 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
     return base64.b64encode(result).decode('utf-8')
 
 # ============================================================
-#  /gx 核心功能（使用超级鹰识别验证码，增强日志与超时）
+#  /gx 核心功能（增强网络容错版）
 # ============================================================
 GX_PHONE, GX_WAIT_SMS = range(20, 22)
 
 def gx_get_captcha():
-    """获取验证码，使用超级鹰识别，返回 (code, uuid)"""
-    print("[gx] ===== 进入 gx_get_captcha 函数 =====")  # 明确函数被调用
-    # 初始化 session
-    try:
-        gx_session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=10)
-        print("[gx] 首页初始化成功")
-    except Exception as e:
-        print(f"[gx] 首页初始化失败（可忽略）: {e}")
+    """获取验证码，尝试多种方式强制获取"""
+    print("[gx] ===== 进入 gx_get_captcha 函数 =====")
+
+    # 尝试多种 User-Agent
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    ]
+    # 尝试 HTTP 和 HTTPS
+    protocols = ["http", "https"]
 
     for attempt in range(3):
-        try:
-            print(f"[gx] 第{attempt+1}次尝试获取验证码...")
-            url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
-            resp = gx_session.get(url, headers=GX_HEADERS, timeout=60)  # 超时改为60秒
-            if resp.status_code != 200:
-                print(f"[gx] 第{attempt+1}次：HTTP {resp.status_code}")
-                time.sleep(2)
-                continue
+        for protocol in protocols:
+            for ua in user_agents:
+                try:
+                    base_url = f"{protocol}://www.gxdlys.com"
+                    print(f"[gx] 尝试 {base_url} 使用 UA: {ua[:30]}...")
+                    # 初始化 session（先访问首页获取 cookie）
+                    try:
+                        gx_session.get(base_url, headers={"User-Agent": ua}, timeout=10)
+                    except:
+                        pass
 
-            data = resp.json()
-            if data.get("statusCode") != 200:
-                print(f"[gx] 第{attempt+1}次：接口返回错误 {data.get('info')}")
-                time.sleep(2)
-                continue
+                    # 获取验证码
+                    url = f"{base_url}/Wechat/FaceDetect/GetVerifyCode"
+                    headers = GX_HEADERS.copy()
+                    headers["User-Agent"] = ua
+                    resp = gx_session.get(url, headers=headers, timeout=120)  # 超时120秒
 
-            img_b64 = data.get("data", {}).get("img")
-            uuid = data.get("data", {}).get("uuid")
-            if not img_b64 or not uuid:
-                print("[gx] 返回数据缺少 img 或 uuid")
-                time.sleep(2)
-                continue
+                    if resp.status_code != 200:
+                        print(f"[gx] HTTP {resp.status_code} for {protocol}")
+                        continue
 
-            img_bytes = base64.b64decode(img_b64)
-            print(f"[gx] 验证码图片获取成功，大小 {len(img_bytes)} 字节")
+                    data = resp.json()
+                    if data.get("statusCode") != 200:
+                        print(f"[gx] 接口返回错误 {data.get('info')}")
+                        continue
 
-            # ---------- 使用超级鹰识别 ----------
-            try:
-                print("[gx] 正在调用超级鹰API...")
-                result = chaojiying.PostPic(img_bytes, CJY_CODETYPE)
-                print(f"[gx] 超级鹰返回: {result}")
-                if result.get('err_no') == 0:
-                    code = result.get('pic_str')
-                    print(f"[gx] 超级鹰识别成功：{code}")
-                else:
-                    print(f"[gx] 超级鹰识别失败: {result.get('err_str')}")
-                    code = None
-            except requests.exceptions.Timeout:
-                print("[gx] 超级鹰API超时，请检查网络")
-                code = None
-            except Exception as e:
-                print(f"[gx] 超级鹰调用异常: {e}")
-                import traceback
-                traceback.print_exc()
-                code = None
+                    img_b64 = data.get("data", {}).get("img")
+                    uuid = data.get("data", {}).get("uuid")
+                    if not img_b64 or not uuid:
+                        print("[gx] 缺少 img 或 uuid")
+                        continue
 
-            if code:
-                code = re.sub(r'[^A-Z0-9]', '', code.upper())
-                if len(code) == 4:
-                    print(f"[gx] 最终验证码：{code}")
-                    return code, uuid
-                else:
-                    print(f"[gx] 识别结果长度异常（{len(code)}），内容：{code}")
-            else:
-                print("[gx] 超级鹰未能识别，等待重试...")
+                    img_bytes = base64.b64decode(img_b64)
+                    print(f"[gx] 验证码图片获取成功，大小 {len(img_bytes)} 字节")
 
-            time.sleep(2)
-        except requests.exceptions.Timeout:
-            print(f"[gx] 第{attempt+1}次请求超时")
-            time.sleep(2)
-        except Exception as e:
-            print(f"[gx] 第{attempt+1}次异常：{e}")
-            import traceback
-            traceback.print_exc()
-            time.sleep(2)
+                    # ---------- 使用超级鹰识别 ----------
+                    try:
+                        print("[gx] 正在调用超级鹰API...")
+                        result = chaojiying.PostPic(img_bytes, CJY_CODETYPE)
+                        print(f"[gx] 超级鹰返回: {result}")
+                        if result.get('err_no') == 0:
+                            code = result.get('pic_str')
+                            print(f"[gx] 超级鹰识别成功：{code}")
+                        else:
+                            print(f"[gx] 超级鹰识别失败: {result.get('err_str')}")
+                            code = None
+                    except Exception as e:
+                        print(f"[gx] 超级鹰调用异常: {e}")
+                        code = None
+
+                    if code:
+                        code = re.sub(r'[^A-Z0-9]', '', code.upper())
+                        if len(code) == 4:
+                            print(f"[gx] 最终验证码：{code}")
+                            return code, uuid
+                        else:
+                            print(f"[gx] 识别结果长度异常（{len(code)}），内容：{code}")
+                    else:
+                        print("[gx] 识别失败，继续尝试...")
+
+                except requests.exceptions.ConnectionError as e:
+                    print(f"[gx] 连接错误（{protocol}）: {e}")
+                except requests.exceptions.Timeout:
+                    print(f"[gx] 超时（{protocol}）")
+                except Exception as e:
+                    print(f"[gx] 异常（{protocol}）: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                time.sleep(1)  # 短暂等待再试
 
     return None, None
 
@@ -394,7 +396,7 @@ def gx_download_photo(file_id):
 
 # ---------- /gx 对话处理 ----------
 def gx_start(update, context):
-    print("[gx] 收到 /gx 命令")  # 添加日志
+    print("[gx] 收到 /gx 命令")
     text = update.message.text
     match = re.match(r'/gx\s+(\S+)\s+(\S+)', text)
     if not match:
@@ -411,7 +413,7 @@ def gx_start(update, context):
     return GX_PHONE
 
 def gx_get_phone(update, context):
-    print("[gx] 进入 gx_get_phone")  # 添加日志
+    print("[gx] 进入 gx_get_phone")
     phone = update.message.text.strip()
     if not re.match(r'^1\d{10}$', phone):
         update.message.reply_text("❌ 手机号格式不正确，请重新输入（11位数字）：")
@@ -1038,7 +1040,7 @@ def main():
     )
     dp.add_handler(conv_gx)
 
-    print("🤖 机器人已启动（四功能完整版，验证码使用超级鹰，增强日志）")
+    print("🤖 机器人已启动（四功能完整版，网络增强版）")
     updater.start_polling(drop_pending_updates=True)
     updater.idle()
 
