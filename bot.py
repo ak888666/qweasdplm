@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 五功能版 (hainansf / sfz / plc / wh / hb) =====")
+print("===== Bot 四功能版 (hainansf / sfz / plc / hb) =====")
 
 import os
 import time
@@ -140,96 +140,13 @@ def query_id_card_sync(id_card):
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
 # ============================================================
-#  ⚠️ 威海查询功能（/wh）
-# ============================================================
-WEIHAI_AUTH = "你的真实Authorization"  # ⚠️ 请替换为真实值
-WEIHAI_REFERER = "你的真实Referer"      # ⚠️ 请替换为真实值
-
-def query_weihai(idcard):
-    headers = {
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Authorization': WEIHAI_AUTH,
-        'Connection': 'keep-alive',
-        'Content-Type': 'application/json',
-        'Origin': 'https://whzhsp.weihai.cn',
-        'Referer': WEIHAI_REFERER,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
-        'sec-ch-ua': '"Not_A Brand";v="99", "Chromium";v="142"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-    }
-
-    json_data_query = {
-        'itemCode': '37100001000055',
-        'itemName': '动物诊疗许可证核发',
-        'holderCode': idcard,
-        'holderTypeCode': '111',
-        'certTypeCode': '11100000000013127D001',
-    }
-
-    try:
-        response_query = requests.post(
-            'https://whzhsp.weihai.cn/gate/data/license/queryCertInfoByHolderCode',
-            headers=headers,
-            json=json_data_query,
-            timeout=30
-        )
-        response_query.raise_for_status()
-        res_dict = response_query.json()
-    except Exception as e:
-        return False, f"查询失败: {e}"
-
-    if "data" in res_dict and len(res_dict["data"]) > 0:
-        target_info = res_dict["data"][0]
-        zzyxqjzrq = target_info.get("zzyxqjzrq")
-        cert_identifier = target_info.get("cert_identifier")
-        if not zzyxqjzrq or not cert_identifier:
-            return False, "未获取到有效参数"
-    else:
-        return False, f"无数据: {res_dict.get('msg', '未知错误')}"
-
-    json_data_download = {
-        "itemCode": "37100001000055",
-        "itemName": "动物诊疗许可证核发",
-        "fileType": "ofd",
-        "certificateIdentifier": cert_identifier,
-        "certificateCopyExpiringTime": zzyxqjzrq
-    }
-
-    try:
-        res_download = requests.post(
-            "https://whzhsp.weihai.cn/gate/data/license/getDownloadFileWeiHai",
-            headers=headers,
-            json=json_data_download,
-            timeout=30
-        )
-        res_download.raise_for_status()
-        download_data = res_download.text
-        outer_data = json.loads(download_data)
-        inner_data = json.loads(outer_data["data"])
-        uuid = inner_data.get("uuid")
-        if not uuid:
-            return False, "未获取到文件UUID"
-    except Exception as e:
-        return False, f"下载请求失败: {e}"
-
-    url = f"https://whzhsp.weihai.cn/gate/custom/file/downloadFile?doc_id={uuid}&fileName={idcard}.jpg"
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        return True, response.content
-    except Exception as e:
-        return False, f"文件下载失败: {e}"
-
-# ============================================================
-#  ⚠️ 湖北查询功能（/hb）— 使用 IP 直连，已修复
+#  ⚠️ 湖北查询功能（/hb）— 使用 IP 直连，完整修复版
 # ============================================================
 HB_KEY = b"ZBYSC2SGOYBVVHUZ"
 HUBEI_IP = "220.249.92.24"          # scjg.hubei.gov.cn 的 IP
 HUBEI_HOST = "scjg.hubei.gov.cn"    # 用于 Host 头
 
-# ===== AES 加密 / 解密函数 =====
+# ===== 手动实现 AES-128-ECB（纯 Python，无外部依赖）=====
 Sbox = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -249,7 +166,6 @@ Sbox = [
     0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
 ]
 Rcon = [0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]
-
 InvSbox = [0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
            0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
            0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
@@ -402,18 +318,17 @@ def aes_ecb_decrypt(encrypted_data: str, key: bytes = HB_KEY) -> str:
         print(f"解密失败: {e}")
         return None
 
-# ---------- 湖北查询主函数（使用 IP 直连） ----------
+# ---------- 湖北查询主函数（使用 IP 直连 + 完整下载） ----------
 def query_hubei(idcard):
-    """查询湖北市场监管证照（使用 IP 直连 + Host 头）"""
+    """查询湖北市场监管证照，返回 (成功标志, 数据列表)"""
+    # 强制使用 IPv4（部分网络环境需要）
     import socket
-    # 强制使用 IPv4
     old_getaddrinfo = socket.getaddrinfo
     def new_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
         return old_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
     socket.getaddrinfo = new_getaddrinfo
 
     list_api = f"https://{HUBEI_IP}/hbzhspyzw/sc/xzspMain/api/dynamicFileRecord/listInternetFile"
-
     list_headers = {
         "Host": HUBEI_HOST,
         "Connection": "keep-alive",
@@ -433,6 +348,7 @@ def query_hubei(idcard):
         "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
+    # 构造请求体并加密
     payload_plain = json.dumps({
         "type": "",
         "CertificateType": "",
@@ -440,25 +356,17 @@ def query_hubei(idcard):
         "holdCode": idcard,
         "operName": ""
     }, separators=(',', ':'))
-
     encrypt_body = aes_ecb_encrypt(payload_plain)
     req_body = json.dumps({"encryptBody": encrypt_body}, separators=(',', ':'))
 
     try:
-        resp = requests.post(
-            list_api,
-            headers=list_headers,
-            data=req_body.encode("utf-8"),
-            timeout=30,
-            verify=False
-        )
+        resp = requests.post(list_api, headers=list_headers, data=req_body.encode("utf-8"), timeout=30, verify=False)
         resp.raise_for_status()
-
+        # 响应体是加密的，需解密
         decrypted_text = aes_ecb_decrypt(resp.text)
         if decrypted_text is None:
             return False, "解密响应失败"
         res_json = json.loads(decrypted_text)
-
         if res_json.get("code") != 200:
             return False, f"查询失败：{res_json.get('message')}"
         data_list = res_json.get("data", [])
@@ -467,8 +375,9 @@ def query_hubei(idcard):
     except Exception as e:
         return False, f"请求异常：{e}"
 
-    # 下载所有证照
+    # 下载所有证照图片
     results = []
+    session = requests.Session()
     for i, item in enumerate(data_list, 1):
         cert_id = item.get("certificateID")
         cert_name = item.get("certificateType", f"证照_{i}")
@@ -484,19 +393,20 @@ def query_hubei(idcard):
             "Connection": "keep-alive"
         }
         try:
-            resp = requests.get(dl_url, headers=dl_headers, verify=False, timeout=30)
+            resp = session.get(dl_url, headers=dl_headers, verify=False, timeout=30, stream=True)
             if resp.status_code == 200:
                 results.append({
                     "name": cert_name,
                     "data": resp.content,
                     "index": i
                 })
+            else:
+                print(f"下载证照 {cert_id} 失败，HTTP {resp.status_code}")
         except Exception as e:
-            print(f"下载证照 {cert_id} 失败：{e}")
+            print(f"下载证照 {cert_id} 异常：{e}")
 
     if not results:
         return False, "未获取到任何证照图片"
-
     return True, results
 
 # ============================================================
@@ -685,7 +595,6 @@ def start(update, context):
         "/hainansf +空格+ 身份证→查询海南大头\n"
         "/sfz → 生成双面身份证·自动签发机关\n"
         "/plc → 生成PLC模板自动地址·按钮确认或手动输入\n"
-        "/wh 身份证号 → 查询威海动物诊疗许可证\n"
         "/hb 身份证号 → 查询湖北市场监管证照\n"
         "/cancel → 取消当前操作"
     )
@@ -707,27 +616,6 @@ def hainansf(update, context):
             document=io.BytesIO(result),
             filename=f"{id_card}.pdf",
             caption="✅ 查询成功"
-        )
-    else:
-        update.message.reply_text(f"❌ 查询失败：{result}")
-
-def wh_command(update, context):
-    args = context.args
-    if not args:
-        update.message.reply_text("❌ 格式错误\n正确格式：/wh <身份证号>")
-        return
-    id_card = args[0].strip()
-    if len(id_card) != 18:
-        update.message.reply_text("❌ 身份证号必须为18位")
-        return
-    update.message.reply_text("⏳ 正在查询威海系统...")
-    success, result = query_weihai(id_card)
-    if success:
-        context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=io.BytesIO(result),
-            filename=f"{id_card}.ofd",
-            caption="✅ 威海证件下载成功"
         )
     else:
         update.message.reply_text(f"❌ 查询失败：{result}")
@@ -944,7 +832,6 @@ def main():
 
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
-    dp.add_handler(CommandHandler("wh", wh_command))
     dp.add_handler(CommandHandler("hb", hb_command))
     dp.add_handler(CommandHandler("cancel", cancel))
 
