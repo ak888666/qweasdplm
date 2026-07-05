@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 四功能完整版 (v2 修复验证码) =====")
+print("===== Bot 四功能完整版 (超级鹰版) =====")
 
 import os
 import time
@@ -11,9 +11,10 @@ import tempfile
 import re
 import base64
 import urllib.parse
+import hashlib
 import requests
 import urllib3
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -26,10 +27,49 @@ from telegram.ext import (
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================================
-#  ⚠️ 必填项：请将下方 Token 和 Cookie 替换为真实数据
+#  ⚠️ Telegram Bot Token
 # ============================================================
-BOT_TOKEN = "5849383582:AAHKD-K_erbIyYzMT7Oo09Oodxod6UkX6PE"   # 你的 Bot Token
+BOT_TOKEN = "5849383582:AAHKD-K_erbIyYzMT7Oo09Oodxod6UkX6PE"
 
+# ============================================================
+#  ⚠️ 超级鹰配置（已填好你的信息）
+# ============================================================
+class Chaojiying_Client:
+    def __init__(self, username, password, soft_id):
+        self.username = username
+        password = password.encode('utf-8')
+        self.password = hashlib.md5(password).hexdigest()
+        self.soft_id = soft_id
+        self.base_params = {
+            'user': self.username,
+            'pass2': self.password,
+            'softid': self.soft_id,
+        }
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        }
+
+    def PostPic(self, im, codetype):
+        params = {
+            'codetype': codetype,
+        }
+        params.update(self.base_params)
+        files = {'userfile': ('captcha.jpg', im)}
+        r = requests.post('http://upload.chaojiying.net/Upload/Processing.php', 
+                          data=params, files=files, headers=self.headers, timeout=30)
+        return r.json()
+
+# 你的超级鹰账号信息
+CJY_USERNAME = "202607055w661t38"
+CJY_PASSWORD = "zxcvbnm369f"
+CJY_SOFT_ID = "982408"
+CJY_CODETYPE = 1902   # 4位英文数字混合
+
+chaojiying = Chaojiying_Client(CJY_USERNAME, CJY_PASSWORD, CJY_SOFT_ID)
+
+# ============================================================
+#  ⚠️ 海南系统配置（如不用可忽略）
+# ============================================================
 BASE_COOKIES = {
     "cna": "REPLACE_CNA_HERE",
     "JSESSIONID": "REPLACE_JSESSIONID_HERE",
@@ -37,14 +77,15 @@ BASE_COOKIES = {
     "SERVERID": "REPLACE_SERVERID_HERE",
 }
 ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
-
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ---------- 新增：gxdlys 网站配置 ----------
+# ============================================================
+#  gxdlys 网站配置
+# ============================================================
 GX_BASE_URL = "http://www.gxdlys.com"
-GX_PASSWORD = "268428."          # 固定密码（可自行修改）
+GX_PASSWORD = "268428."
 GX_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36",
     "X-Requested-With": "XMLHttpRequest",
@@ -56,18 +97,9 @@ GX_HEADERS = {
 }
 gx_session = requests.Session()
 
-# ---------- 导入 ddddocr 用于验证码识别 ----------
-try:
-    import ddddocr
-    ocr = ddddocr.DdddOcr(show_ad=False)
-    print("✅ ddddocr 加载成功")
-except ImportError:
-    print("⚠️ ddddocr 未安装，/gx 命令将无法自动识别验证码")
-    ocr = None
-
-# ====================================================================
-# 0. SM4 加密函数（用于 /gx 登录）
-# ====================================================================
+# ============================================================
+#  SM4 加密函数
+# ============================================================
 SM4_KEY = "CatsPK0WWWRRhjkw"
 SboxTable = [
     0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
@@ -158,9 +190,296 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ====================================================================
-# 1. 海南查询功能（/hainansf）——保持不变
-# ====================================================================
+# ============================================================
+#  /gx 核心功能（使用超级鹰识别验证码）
+# ============================================================
+GX_PHONE, GX_WAIT_SMS = range(20, 22)
+
+def gx_get_captcha():
+    """获取验证码，使用超级鹰识别，返回 (code, uuid)"""
+    # 初始化 session
+    try:
+        gx_session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=5)
+    except:
+        pass
+
+    for attempt in range(3):
+        try:
+            url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
+            resp = gx_session.get(url, headers=GX_HEADERS, timeout=15)
+            if resp.status_code != 200:
+                print(f"[gx] 第{attempt+1}次：HTTP {resp.status_code}")
+                time.sleep(1)
+                continue
+
+            data = resp.json()
+            if data.get("statusCode") != 200:
+                print(f"[gx] 第{attempt+1}次：接口返回错误 {data.get('info')}")
+                time.sleep(1)
+                continue
+
+            img_b64 = data.get("data", {}).get("img")
+            uuid = data.get("data", {}).get("uuid")
+            if not img_b64 or not uuid:
+                print("[gx] 返回数据缺少 img 或 uuid")
+                time.sleep(1)
+                continue
+
+            img_bytes = base64.b64decode(img_b64)
+
+            # ---------- 使用超级鹰识别 ----------
+            try:
+                result = chaojiying.PostPic(img_bytes, CJY_CODETYPE)
+                if result.get('err_no') == 0:
+                    code = result.get('pic_str')
+                    print(f"[gx] 超级鹰识别成功：{code}")
+                else:
+                    print(f"[gx] 超级鹰识别失败: {result.get('err_str')}")
+                    code = None
+            except Exception as e:
+                print(f"[gx] 超级鹰调用异常: {e}")
+                code = None
+
+            if code:
+                code = re.sub(r'[^A-Z0-9]', '', code.upper())
+                if len(code) == 4:
+                    print(f"[gx] 最终验证码：{code}")
+                    return code, uuid
+                else:
+                    print(f"[gx] 识别结果长度异常（{len(code)}），内容：{code}")
+            else:
+                print("[gx] 超级鹰未能识别")
+
+            time.sleep(1)
+        except Exception as e:
+            print(f"[gx] 第{attempt+1}次异常：{e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(1)
+
+    return None, None
+
+def gx_send_sms(phone, captcha_code, uuid):
+    data = {
+        "phoneId": phone,
+        "type": "10001",
+        "IsEncryptPhoneId": "false",
+        "verifyCode": captcha_code,
+        "uuid": uuid
+    }
+    try:
+        r = gx_session.post(
+            f"{GX_BASE_URL}/System/SmsService/PostVerifyCode",
+            data=data,
+            headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+            timeout=60
+        )
+        if r.status_code == 200:
+            res = r.json()
+            return res.get("statusCode") == 200
+        return False
+    except Exception as e:
+        print(f"[gx] 发送短信失败: {e}")
+        return False
+
+def gx_register(phone, sms_code, captcha_code, real_name, id_card):
+    data = {
+        "zipArea": "",
+        "userType": "-1",
+        "wechatUid": "",
+        "realName": real_name,
+        "iDCard": id_card,
+        "loginName": id_card,
+        "password": GX_PASSWORD,
+        "idcardImg1Url": "218,8a785f252c8518",
+        "idcardImg2Url": "216,8a7860c46589f3",
+        "idcardImg3Url": "214,8a78664776227f",
+        "idcardImg4Url": "",
+        "ownerId": "",
+        "tel": phone,
+        "isTelEncrypted": "false",
+        "validCode": sms_code,
+        "verifyCode": captcha_code
+    }
+    try:
+        r = gx_session.post(
+            f"{GX_BASE_URL}/Wechat/User/RegistAdd",
+            data=data,
+            headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+            timeout=60
+        )
+        if r.status_code == 200:
+            res = r.json()
+            return res.get("statusCode") == 200
+        return False
+    except Exception as e:
+        print(f"[gx] 注册异常: {e}")
+        return False
+
+def gx_login(id_card):
+    encrypted_login_raw = sm4_encrypt_ecb(id_card)
+    encrypted_pwd_raw = sm4_encrypt_ecb(GX_PASSWORD)
+    encrypted_login = urllib.parse.quote(encrypted_login_raw)
+    encrypted_pwd = urllib.parse.quote(encrypted_pwd_raw)
+    data = f"loginName={encrypted_login}&password={encrypted_pwd}&wechatUid="
+    login_headers = {
+        **GX_HEADERS,
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Referer": "http://www.gxdlys.com/Wechat/Home/Login",
+        "Host": "www.gxdlys.com"
+    }
+    try:
+        r = gx_session.post(
+            "http://www.gxdlys.com/Wechat/Home/PostLogin",
+            headers=login_headers,
+            data=data,
+            timeout=60
+        )
+        if r.status_code == 200:
+            res = r.json()
+            return res.get("statusCode") == 200
+        return False
+    except Exception as e:
+        print(f"[gx] 登录异常: {e}")
+        return False
+
+def gx_query_id_photo(name, id_card):
+    encoded_name = urllib.parse.quote(name)
+    url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
+    query_headers = {
+        **GX_HEADERS,
+        "Referer": "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1",
+        "Host": "www.gxdlys.com"
+    }
+    try:
+        r = gx_session.get(url, headers=query_headers, timeout=60)
+        if r.status_code == 200:
+            return r.json()
+        return {}
+    except Exception as e:
+        print(f"[gx] 查询异常: {e}")
+        return {}
+
+def gx_download_photo(file_id):
+    url = f"{GX_BASE_URL}/System/FileService/ShowFile?fileId={file_id}"
+    try:
+        r = gx_session.get(url, timeout=60)
+        if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
+            return r.content
+        return None
+    except Exception as e:
+        print(f"[gx] 下载照片异常: {e}")
+        return None
+
+# ---------- /gx 对话处理 ----------
+def gx_start(update, context):
+    text = update.message.text
+    match = re.match(r'/gx\s+(\S+)\s+(\S+)', text)
+    if not match:
+        update.message.reply_text("❌ 格式错误，请使用：/gx 姓名 身份证号")
+        return ConversationHandler.END
+    real_name = match.group(1).strip()
+    id_card = match.group(2).strip()
+    if not re.match(r'^\d{17}[\dXx]$', id_card):
+        update.message.reply_text("❌ 身份证号格式不正确（18位数字或末尾X）")
+        return ConversationHandler.END
+    context.user_data['gx_real_name'] = real_name
+    context.user_data['gx_id_card'] = id_card.upper()
+    update.message.reply_text("📱 请发送您的手机号（11位数字）：")
+    return GX_PHONE
+
+def gx_get_phone(update, context):
+    phone = update.message.text.strip()
+    if not re.match(r'^1\d{10}$', phone):
+        update.message.reply_text("❌ 手机号格式不正确，请重新输入（11位数字）：")
+        return GX_PHONE
+    context.user_data['gx_phone'] = phone
+
+    update.message.reply_text("⏳ 正在获取图形验证码并识别（超级鹰）...")
+    captcha_code, uuid = gx_get_captcha()
+    if not captcha_code or not uuid:
+        update.message.reply_text("❌ 获取验证码失败，请稍后重试。")
+        return ConversationHandler.END
+
+    context.user_data['gx_captcha'] = captcha_code
+    context.user_data['gx_uuid'] = uuid
+    update.message.reply_text(f"✅ 图形验证码已识别：`{captcha_code}`")
+
+    update.message.reply_text("📤 正在发送短信验证码...")
+    if gx_send_sms(phone, captcha_code, uuid):
+        update.message.reply_text("📨 短信已发送，请查看手机，输入6位短信验证码：")
+        return GX_WAIT_SMS
+    else:
+        update.message.reply_text("❌ 短信发送失败，请检查手机号或稍后重试。")
+        return ConversationHandler.END
+
+def gx_get_sms(update, context):
+    sms_code = update.message.text.strip()
+    if not re.match(r'^\d{6}$', sms_code):
+        update.message.reply_text("❌ 验证码应为6位数字，请重新输入：")
+        return GX_WAIT_SMS
+
+    real_name = context.user_data['gx_real_name']
+    id_card = context.user_data['gx_id_card']
+    phone = context.user_data['gx_phone']
+    captcha_code = context.user_data['gx_captcha']
+
+    update.message.reply_text("⏳ 正在注册账户...")
+    if gx_register(phone, sms_code, captcha_code, real_name, id_card):
+        update.message.reply_text("✅ 注册成功！正在登录...")
+        if gx_login(id_card):
+            update.message.reply_text("✅ 登录成功，正在查询身份证信息...")
+            result = gx_query_id_photo(real_name, id_card)
+            if result and result.get("statusCode") == 200:
+                data = result.get("data", {})
+                item2 = data.get("item2", {})
+                if item2:
+                    xm = item2.get("xm", "")
+                    sfz = item2.get("gmsfhm", "")
+                    mz = item2.get("mz", "").replace("族", "")
+                    qfjg = item2.get("issueD_UNIT", "")
+                    zz = item2.get("fulladdr", "")
+                    yxqq = item2.get("uL_FROM_DATE", "").replace("-", ".")
+                    yxqz = item2.get("uL_END_DATE", "").replace("-", ".")
+                    info = (
+                        f"👤 姓名：{xm}\n"
+                        f"🆔 身份证：{sfz}\n"
+                        f"🌏 民族：{mz}\n"
+                        f"🏛️ 签发机关：{qfjg}\n"
+                        f"📍 住址：{zz}\n"
+                        f"📅 有效期：{yxqq} 至 {yxqz}"
+                    )
+                    update.message.reply_text(f"📄 身份信息：\n{info}")
+                file_id = data.get("item1")
+                if file_id:
+                    img_data = gx_download_photo(file_id)
+                    if img_data:
+                        update.message.reply_photo(
+                            photo=img_data,
+                            caption=f"{real_name} 的身份证照片"
+                        )
+                    else:
+                        update.message.reply_text("⚠️ 照片下载失败。")
+                else:
+                    update.message.reply_text("⚠️ 未找到照片。")
+            else:
+                update.message.reply_text("❌ 查询身份信息失败。")
+        else:
+            update.message.reply_text("❌ 登录失败，可能密码错误或账户异常。")
+    else:
+        update.message.reply_text("❌ 注册失败，请检查信息是否正确或稍后重试。")
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+def gx_cancel(update, context):
+    update.message.reply_text("🚫 操作已取消。")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ============================================================
+#  /hainansf 海南查询（保持不变）
+# ============================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -256,9 +575,9 @@ def query_id_card_sync(id_card):
             time.sleep(2)
     return False, f"连续 {RETRY_TIMES} 次查询均失败，请检查 Cookie/Token 是否有效"
 
-# ====================================================================
-# 2. 通用去白底函数
-# ====================================================================
+# ============================================================
+#  /sfz 生成身份证（保持不变）
+# ============================================================
 def remove_white_background(img, threshold=240):
     if img.mode != 'RGBA':
         img = img.convert('RGBA')
@@ -273,9 +592,6 @@ def remove_white_background(img, threshold=240):
     img.putdata(new_data)
     return img
 
-# ====================================================================
-# 3. 生成功能1：/sfz（使用 empty.png 模板）
-# ====================================================================
 def load_issuing_authority_map(file_path):
     issuing_authority_map = {}
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -352,9 +668,9 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
 
     return img_bytes, pdf_bytes
 
-# ====================================================================
-# 4. 生成功能2：/plc（使用 mb.jpg 模板，自动匹配地址，带按钮确认）
-# ====================================================================
+# ============================================================
+#  /plc 生成PLC模板（保持不变）
+# ============================================================
 def load_area_map():
     area_map = {}
     file_path = 'plc/地区.txt'
@@ -433,300 +749,9 @@ def generate_plc_sync(name, id_card, address, avatar_path):
 
     return img_bytes, pdf_bytes
 
-# ====================================================================
-# 5. 新增：/gx 自动注册并查询身份证（gxdlys 网站）——修复版
-# ====================================================================
-# ---------- 状态常量 ----------
-GX_PHONE, GX_WAIT_SMS = range(20, 22)
-
-# ---------- 辅助函数（重试 + 初始化） ----------
-def gx_get_captcha():
-    """获取验证码并识别，返回 (code, uuid)，失败返回 (None, None)"""
-    # 先访问首页，初始化 session（获取必要 cookie）
-    try:
-        gx_session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=5)
-    except:
-        pass  # 忽略错误，即使访问失败也继续
-
-    for attempt in range(3):  # 最多重试 3 次
-        try:
-            url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetVerifyCode"
-            resp = gx_session.get(url, headers=GX_HEADERS, timeout=15)
-            if resp.status_code != 200:
-                print(f"[gx] 第{attempt+1}次：获取验证码 HTTP {resp.status_code}")
-                time.sleep(1)
-                continue
-
-            data = resp.json()
-            if data.get("statusCode") != 200:
-                print(f"[gx] 第{attempt+1}次：接口返回错误 {data.get('info', '未知')}")
-                time.sleep(1)
-                continue
-
-            img_b64 = data.get("data", {}).get("img")
-            uuid = data.get("data", {}).get("uuid")
-            if not img_b64 or not uuid:
-                print("[gx] 返回数据缺少 img 或 uuid")
-                time.sleep(1)
-                continue
-
-            img_bytes = base64.b64decode(img_b64)
-
-            # 使用 ddddocr 识别
-            if ocr:
-                code = ocr.classification(img_bytes)
-                if code:
-                    code = re.sub(r'[^A-Z0-9]', '', code.upper())
-                    if len(code) == 4:
-                        print(f"[gx] 验证码识别成功：{code}")
-                        return code, uuid
-                    else:
-                        print(f"[gx] 识别结果长度异常（{len(code)}），内容：{code}")
-                else:
-                    print("[gx] ddddocr 识别为空")
-            else:
-                print("[gx] ddddocr 未加载，无法识别")
-
-            # 如果识别失败，保存图片以便调试（可选）
-            # with open(f"captcha_debug_{int(time.time())}.png", "wb") as f:
-            #     f.write(img_bytes)
-
-            time.sleep(1)
-        except Exception as e:
-            print(f"[gx] 第{attempt+1}次异常：{e}")
-            import traceback
-            traceback.print_exc()
-            time.sleep(1)
-
-    return None, None
-
-def gx_send_sms(phone, captcha_code, uuid):
-    """发送短信验证码"""
-    data = {
-        "phoneId": phone,
-        "type": "10001",
-        "IsEncryptPhoneId": "false",
-        "verifyCode": captcha_code,
-        "uuid": uuid
-    }
-    try:
-        r = gx_session.post(
-            f"{GX_BASE_URL}/System/SmsService/PostVerifyCode",
-            data=data,
-            headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
-            timeout=60
-        )
-        if r.status_code == 200:
-            res = r.json()
-            return res.get("statusCode") == 200
-        return False
-    except Exception as e:
-        print(f"[gx] 发送短信失败: {e}")
-        return False
-
-def gx_register(phone, sms_code, captcha_code, real_name, id_card):
-    """提交注册"""
-    data = {
-        "zipArea": "",
-        "userType": "-1",
-        "wechatUid": "",
-        "realName": real_name,
-        "iDCard": id_card,
-        "loginName": id_card,
-        "password": GX_PASSWORD,
-        "idcardImg1Url": "218,8a785f252c8518",
-        "idcardImg2Url": "216,8a7860c46589f3",
-        "idcardImg3Url": "214,8a78664776227f",
-        "idcardImg4Url": "",
-        "ownerId": "",
-        "tel": phone,
-        "isTelEncrypted": "false",
-        "validCode": sms_code,
-        "verifyCode": captcha_code
-    }
-    try:
-        r = gx_session.post(
-            f"{GX_BASE_URL}/Wechat/User/RegistAdd",
-            data=data,
-            headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
-            timeout=60
-        )
-        if r.status_code == 200:
-            res = r.json()
-            return res.get("statusCode") == 200
-        return False
-    except Exception as e:
-        print(f"[gx] 注册异常: {e}")
-        return False
-
-def gx_login(id_card):
-    """登录获取 session"""
-    encrypted_login_raw = sm4_encrypt_ecb(id_card)
-    encrypted_pwd_raw = sm4_encrypt_ecb(GX_PASSWORD)
-    encrypted_login = urllib.parse.quote(encrypted_login_raw)
-    encrypted_pwd = urllib.parse.quote(encrypted_pwd_raw)
-    data = f"loginName={encrypted_login}&password={encrypted_pwd}&wechatUid="
-    login_headers = {
-        **GX_HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": "http://www.gxdlys.com/Wechat/Home/Login",
-        "Host": "www.gxdlys.com"
-    }
-    try:
-        r = gx_session.post(
-            "http://www.gxdlys.com/Wechat/Home/PostLogin",
-            headers=login_headers,
-            data=data,
-            timeout=60
-        )
-        if r.status_code == 200:
-            res = r.json()
-            return res.get("statusCode") == 200
-        return False
-    except Exception as e:
-        print(f"[gx] 登录异常: {e}")
-        return False
-
-def gx_query_id_photo(name, id_card):
-    """查询身份证照片信息"""
-    encoded_name = urllib.parse.quote(name)
-    url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
-    query_headers = {
-        **GX_HEADERS,
-        "Referer": "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1",
-        "Host": "www.gxdlys.com"
-    }
-    try:
-        r = gx_session.get(url, headers=query_headers, timeout=60)
-        if r.status_code == 200:
-            return r.json()
-        return {}
-    except Exception as e:
-        print(f"[gx] 查询异常: {e}")
-        return {}
-
-def gx_download_photo(file_id):
-    """下载照片二进制数据"""
-    url = f"{GX_BASE_URL}/System/FileService/ShowFile?fileId={file_id}"
-    try:
-        r = gx_session.get(url, timeout=60)
-        if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
-            return r.content
-        return None
-    except Exception as e:
-        print(f"[gx] 下载照片异常: {e}")
-        return None
-
-# ---------- 对话处理函数 ----------
-def gx_start(update, context):
-    """命令 /gx 姓名 身份证号"""
-    text = update.message.text
-    match = re.match(r'/gx\s+(\S+)\s+(\S+)', text)
-    if not match:
-        update.message.reply_text("❌ 格式错误，请使用：/gx 姓名 身份证号")
-        return ConversationHandler.END
-    real_name = match.group(1).strip()
-    id_card = match.group(2).strip()
-    if not re.match(r'^\d{17}[\dXx]$', id_card):
-        update.message.reply_text("❌ 身份证号格式不正确（18位数字或末尾X）")
-        return ConversationHandler.END
-    context.user_data['gx_real_name'] = real_name
-    context.user_data['gx_id_card'] = id_card.upper()
-    update.message.reply_text("📱 请发送您的手机号（11位数字）：")
-    return GX_PHONE
-
-def gx_get_phone(update, context):
-    phone = update.message.text.strip()
-    if not re.match(r'^1\d{10}$', phone):
-        update.message.reply_text("❌ 手机号格式不正确，请重新输入（11位数字）：")
-        return GX_PHONE
-    context.user_data['gx_phone'] = phone
-
-    update.message.reply_text("⏳ 正在获取图形验证码并识别...")
-    captcha_code, uuid = gx_get_captcha()
-    if not captcha_code or not uuid:
-        update.message.reply_text("❌ 获取验证码失败，请稍后重试。")
-        return ConversationHandler.END
-
-    context.user_data['gx_captcha'] = captcha_code
-    context.user_data['gx_uuid'] = uuid
-    update.message.reply_text(f"✅ 图形验证码已识别：`{captcha_code}`")
-
-    update.message.reply_text("📤 正在发送短信验证码...")
-    if gx_send_sms(phone, captcha_code, uuid):
-        update.message.reply_text("📨 短信已发送，请查看手机，输入6位短信验证码：")
-        return GX_WAIT_SMS
-    else:
-        update.message.reply_text("❌ 短信发送失败，请检查手机号或稍后重试。")
-        return ConversationHandler.END
-
-def gx_get_sms(update, context):
-    sms_code = update.message.text.strip()
-    if not re.match(r'^\d{6}$', sms_code):
-        update.message.reply_text("❌ 验证码应为6位数字，请重新输入：")
-        return GX_WAIT_SMS
-
-    real_name = context.user_data['gx_real_name']
-    id_card = context.user_data['gx_id_card']
-    phone = context.user_data['gx_phone']
-    captcha_code = context.user_data['gx_captcha']
-
-    update.message.reply_text("⏳ 正在注册账户...")
-    if gx_register(phone, sms_code, captcha_code, real_name, id_card):
-        update.message.reply_text("✅ 注册成功！正在登录...")
-        if gx_login(id_card):
-            update.message.reply_text("✅ 登录成功，正在查询身份证信息...")
-            result = gx_query_id_photo(real_name, id_card)
-            if result and result.get("statusCode") == 200:
-                data = result.get("data", {})
-                item2 = data.get("item2", {})
-                if item2:
-                    xm = item2.get("xm", "")
-                    sfz = item2.get("gmsfhm", "")
-                    mz = item2.get("mz", "").replace("族", "")
-                    qfjg = item2.get("issueD_UNIT", "")
-                    zz = item2.get("fulladdr", "")
-                    yxqq = item2.get("uL_FROM_DATE", "").replace("-", ".")
-                    yxqz = item2.get("uL_END_DATE", "").replace("-", ".")
-                    info = (
-                        f"👤 姓名：{xm}\n"
-                        f"🆔 身份证：{sfz}\n"
-                        f"🌏 民族：{mz}\n"
-                        f"🏛️ 签发机关：{qfjg}\n"
-                        f"📍 住址：{zz}\n"
-                        f"📅 有效期：{yxqq} 至 {yxqz}"
-                    )
-                    update.message.reply_text(f"📄 身份信息：\n{info}")
-                file_id = data.get("item1")
-                if file_id:
-                    img_data = gx_download_photo(file_id)
-                    if img_data:
-                        update.message.reply_photo(
-                            photo=img_data,
-                            caption=f"{real_name} 的身份证照片"
-                        )
-                    else:
-                        update.message.reply_text("⚠️ 照片下载失败。")
-                else:
-                    update.message.reply_text("⚠️ 未找到照片。")
-            else:
-                update.message.reply_text("❌ 查询身份信息失败。")
-        else:
-            update.message.reply_text("❌ 登录失败，可能密码错误或账户异常。")
-    else:
-        update.message.reply_text("❌ 注册失败，请检查信息是否正确或稍后重试。")
-
-    context.user_data.clear()
-    return ConversationHandler.END
-
-def gx_cancel(update, context):
-    update.message.reply_text("🚫 操作已取消。")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-# ====================================================================
-# 6. Telegram 命令处理（入口）
-# ====================================================================
+# ============================================================
+#  Telegram 入口命令
+# ============================================================
 def start(update, context):
     update.message.reply_text(
         "小宇：\n"
@@ -763,7 +788,7 @@ def cancel(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /sfz 对话（同步） =====
+# ===== /sfz 对话 =====
 SFZ_NAME, SFZ_ID, SFZ_NATION, SFZ_ADDR, SFZ_EXPIRY, SFZ_PHOTO = range(6)
 
 def sfz_start(update, context):
@@ -834,7 +859,7 @@ def sfz_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /plc 对话（同步，带按钮确认地址） =====
+# ===== /plc 对话 =====
 PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
@@ -935,9 +960,9 @@ def plc_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ====================================================================
-# 7. 主程序
-# ====================================================================
+# ============================================================
+#  主程序
+# ============================================================
 def main():
     updater = Updater(BOT_TOKEN)
     dp = updater.dispatcher
@@ -962,7 +987,7 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # /plc 对话（带按钮确认）
+    # /plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -976,7 +1001,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    # ---------- 新增 /gx 对话 ----------
+    # /gx 对话（使用超级鹰）
     conv_gx = ConversationHandler(
         entry_points=[CommandHandler('gx', gx_start)],
         states={
@@ -987,8 +1012,8 @@ def main():
     )
     dp.add_handler(conv_gx)
 
-    print("🤖 机器人已启动（四功能完整版：/hainansf, /sfz, /plc, /gx）")
-    updater.start_polling()
+    print("🤖 机器人已启动（四功能完整版，验证码使用超级鹰）")
+    updater.start_polling(drop_pending_updates=True)
     updater.idle()
 
 if __name__ == "__main__":
