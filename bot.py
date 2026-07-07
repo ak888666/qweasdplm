@@ -760,7 +760,7 @@ def recharge_start(update, context):
         f"💰 积分充值\n"
         f"当前积分: {stats['points']}\n"
         f"累计充值: {stats['total_recharge']} USDT\n\n"
-        f"请输入要充值的 USDT 金额（例如 10）："
+        f"请输入要充值的 USDT 金额（例如 1）："
     )
     return RECHARGE_AMOUNT
 
@@ -826,7 +826,7 @@ def start(update, context):
         "/hainansf +空格+身份证 → 查询海南大头\n"
         "/sfz → 生成标准身份证（双面）\n"
         "/plc → 生成PLC模板身份证\n"
-        "/recharge → 充值积分\n"
+        "/recharge → okpay自动充值积分\n"
         "/balance → 查询积分余额\n"
         "/cancel → 取消当前操作"
     )
