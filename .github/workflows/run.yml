@@ -1,19 +1,16 @@
 name: Telegram Bot
 
 on:
-  # 定时触发：每5小时运行一次（避免6小时硬限制）
   schedule:
-    - cron: '0 */5 * * *'
-  # 允许手动触发
+    - cron: '0 */5 * * *'   # 每5小时触发一次
   workflow_dispatch:
-  # 推送代码时触发（用于测试）
   push:
     branches: [ "main" ]
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # 5小时50分钟，低于6小时硬限制
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -31,5 +28,8 @@ jobs:
           JSESSIONID: ${{ secrets.JSESSIONID }}
           SESSION: ${{ secrets.SESSION }}
           SERVERID: ${{ secrets.SERVERID }}
+          OKPAY_ID: ${{ secrets.OKPAY_ID }}
+          OKPAY_TOKEN: ${{ secrets.OKPAY_TOKEN }}
+          CALLBACK_URL: ${{ secrets.CALLBACK_URL }}
         run: |
           python bot.py
