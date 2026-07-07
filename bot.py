@@ -44,7 +44,7 @@ logger = logging.getLogger('MergedBot')
 # ============================================================
 #   ⚠️ 必填项：请将下方 Token / Cookie / 支付密钥替换为真实数据
 # ============================================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"   # 替换为您的机器人 Token
+BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"   # 替换为您的机器人 Token
 
 # ----- 海南查询接口 Cookie -----
 BASE_COOKIES = {
