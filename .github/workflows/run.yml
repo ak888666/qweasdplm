@@ -2,7 +2,7 @@ name: Telegram Bot
 
 on:
   schedule:
-    - cron: '0 */5 * * *'   # 每5小时触发一次
+    - cron: '0 */5 * * *'
   workflow_dispatch:
   push:
     branches: [ "main" ]
@@ -19,8 +19,9 @@ jobs:
           python-version: '3.10'
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ddddocr
+          pip install ddddocr || echo "ddddocr 安装失败，将使用手动验证码模式"
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
