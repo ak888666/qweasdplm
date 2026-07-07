@@ -18,7 +18,7 @@ logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
 # 请将您的 Bot Token 填入下方引号内
-BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"   # ← 修改此处
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
 
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
@@ -164,7 +164,8 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS signin (user_id INTEGER PRIMARY KEY, last_sign_date TEXT)')
     conn.commit(); conn.close(); logger.info("数据库初始化完成")
 init_db()
-# ===== UserManager =====
+
+# ===== UserManager（已修复签到和赠送） =====
 class UserManager:
     @staticmethod
     def get_user(user_id):
@@ -212,38 +213,93 @@ class UserManager:
         finally: conn.close()
     @staticmethod
     def get_stats(user_id):
-        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
-        c.execute('SELECT u.points, u.total_recharge, COUNT(t.id), COALESCE(SUM(t.amount),0) FROM users u LEFT JOIN transactions t ON u.user_id=t.user_id AND t.status="completed" WHERE u.user_id=? GROUP BY u.user_id', (user_id,))
-        row=c.fetchone(); conn.close()
-        if row: return {'points': row[0] or 0.0, 'total_recharge': row[1] or 0.0, 'trans_count': row[2] or 0, 'total_amount': row[3] or 0.0}
-        return {'points':0.0, 'total_recharge':0.0, 'trans_count':0, 'total_amount':0.0}
+        conn = sqlite3.connect('user_points.db')
+        c = conn.cursor()
+        # 确保用户存在
+        c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
+        c.execute('''
+            SELECT u.points, u.total_recharge, COUNT(t.id), COALESCE(SUM(t.amount),0)
+            FROM users u LEFT JOIN transactions t ON u.user_id = t.user_id AND t.status="completed"
+            WHERE u.user_id = ?
+            GROUP BY u.user_id
+        ''', (user_id,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {'points': row[0] or 0.0, 'total_recharge': row[1] or 0.0,
+                    'trans_count': row[2] or 0, 'total_amount': row[3] or 0.0}
+        return {'points': 0.0, 'total_recharge': 0.0, 'trans_count': 0, 'total_amount': 0.0}
     @staticmethod
     def sign_in(user_id):
-        today=time.strftime('%Y-%m-%d'); conn=sqlite3.connect('user_points.db'); c=conn.cursor()
+        """每日签到，返回 (是否成功, 获得积分)"""
+        today = time.strftime('%Y-%m-%d')
+        conn = sqlite3.connect('user_points.db')
+        c = conn.cursor()
         try:
-            c.execute('SELECT last_sign_date FROM signin WHERE user_id=?',(user_id,)); row=c.fetchone()
-            if row and row[0]==today: return False, 0
-            reward=0.05
-            c.execute('BEGIN'); c.execute('UPDATE users SET points=points+?, last_active=CURRENT_TIMESTAMP WHERE user_id=?', (reward, user_id))
-            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)', (user_id, 'signin', reward, None, '每日签到'))
-            if row: c.execute('UPDATE signin SET last_sign_date=? WHERE user_id=?', (today, user_id))
-            else: c.execute('INSERT INTO signin (user_id, last_sign_date) VALUES (?,?)', (user_id, today))
-            conn.commit(); return True, reward
-        except Exception as e: conn.rollback(); logger.error(f"签到失败: {e}"); return False, 0
-        finally: conn.close()
+            # 确保用户存在
+            c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
+            
+            c.execute('SELECT last_sign_date FROM signin WHERE user_id = ?', (user_id,))
+            row = c.fetchone()
+            if row and row[0] == today:
+                return False, 0
+            
+            # 获取当前积分
+            c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
+            current_row = c.fetchone()
+            current_points = current_row[0] if current_row and current_row[0] is not None else 0.0
+            
+            reward = 0.05
+            new_points = current_points + reward
+            
+            c.execute('BEGIN')
+            c.execute('UPDATE users SET points = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
+                      (new_points, user_id))
+            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
+                      (user_id, 'signin', reward, new_points, '每日签到'))
+            if row:
+                c.execute('UPDATE signin SET last_sign_date = ? WHERE user_id = ?', (today, user_id))
+            else:
+                c.execute('INSERT INTO signin (user_id, last_sign_date) VALUES (?, ?)', (user_id, today))
+            conn.commit()
+            return True, reward
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"签到失败: {e}")
+            return False, 0
+        finally:
+            conn.close()
     @staticmethod
     def add_points_direct(user_id, amount, description='管理员赠送'):
-        if amount<=0: return False
-        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
+        """直接增加积分（不关联订单），用户不存在则自动创建"""
+        if amount <= 0:
+            return False
+        conn = sqlite3.connect('user_points.db')
+        c = conn.cursor()
         try:
-            c.execute('SELECT points FROM users WHERE user_id=?',(user_id,)); row=c.fetchone()
-            if not row: return False
-            current=row[0] if row[0] is not None else 0.0
-            c.execute('BEGIN'); c.execute('UPDATE users SET points=points+?, last_active=CURRENT_TIMESTAMP WHERE user_id=?', (amount, user_id))
-            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)', (user_id, 'gift', amount, current+amount, description))
-            conn.commit(); return True
-        except Exception as e: conn.rollback(); logger.error(f"赠送积分失败: {e}"); return False
-        finally: conn.close()
+            # 如果用户不存在，自动创建
+            c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
+            
+            c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
+            row = c.fetchone()
+            if not row:
+                return False
+            current = row[0] if row[0] is not None else 0.0
+            new_points = current + amount
+            
+            c.execute('BEGIN')
+            c.execute('UPDATE users SET points = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
+                      (new_points, user_id))
+            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
+                      (user_id, 'gift', amount, new_points, description))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"赠送积分失败: {e}")
+            return False
+        finally:
+            conn.close()
 
 # ===== OkayPay 客户端 =====
 class OkayPay:
@@ -495,8 +551,10 @@ def givepoint(update, context):
     if amount<=0: update.message.reply_text("❌ 积分数量必须大于0"); return
     remark=' '.join(args[2:]) if len(args)>2 else '管理员赠送'
     if UserManager.add_points_direct(target_id, amount, remark):
-        stats=UserManager.get_stats(target_id); update.message.reply_text(f"✅ 已向用户 {target_id} 赠送 {amount:.2f} 积分，当前积分 {stats['points']:.2f}")
-    else: update.message.reply_text(f"❌ 赠送失败，请确认用户 {target_id} 存在")
+        stats=UserManager.get_stats(target_id)
+        update.message.reply_text(f"✅ 已向用户 {target_id} 赠送 {amount:.2f} 积分，当前积分 {stats['points']:.2f}")
+    else:
+        update.message.reply_text(f"❌ 赠送失败，请确认用户 {target_id} 存在")
 
 def gxquery(update, context):
     uid=update.effective_user.id; args=context.args
