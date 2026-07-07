@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 完整版（签到修复 + /start显示积分）=====")
+print("===== Bot 最终版（签到独立 + 全部修复）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, sqlite3, hashlib, hmac, threading, logging, re, random, base64, urllib.parse
 from typing import Optional
@@ -17,7 +17,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
-# 请将您的 Bot Token 填入下方引号内
 BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
 
 BASE_COOKIES = {
@@ -40,9 +39,9 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
-ADMIN_IDS = [6040143940]  # 管理员ID列表
+ADMIN_IDS = [6040143940]  # ⚠️ 请将您的管理员ID填入此处
 
-# ===== 身份证生成函数 =====
+# ===== 身份证生成函数（完整保留） =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 HEADERS2 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","sec-ch-ua-mobile":"?1","Accept":"*/*","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 def query_id_card_sync(id_card):
@@ -165,7 +164,7 @@ def init_db():
     conn.commit(); conn.close(); logger.info("数据库初始化完成")
 init_db()
 
-# ===== UserManager =====
+# ===== UserManager（彻底修复签到独立） =====
 class UserManager:
     @staticmethod
     def get_user(user_id):
@@ -215,7 +214,6 @@ class UserManager:
     def get_stats(user_id):
         conn = sqlite3.connect('user_points.db')
         c = conn.cursor()
-        # 确保用户存在
         c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
         c.execute('''
             SELECT u.points, u.total_recharge, COUNT(t.id), COALESCE(SUM(t.amount),0)
@@ -229,9 +227,10 @@ class UserManager:
             return {'points': row[0] or 0.0, 'total_recharge': row[1] or 0.0,
                     'trans_count': row[2] or 0, 'total_amount': row[3] or 0.0}
         return {'points': 0.0, 'total_recharge': 0.0, 'trans_count': 0, 'total_amount': 0.0}
+    
     @staticmethod
     def sign_in(user_id):
-        """每日签到，返回 (是否成功, 获得积分)"""
+        """✅ 修复：每个人独立签到，互不影响"""
         today = time.strftime('%Y-%m-%d')
         conn = sqlite3.connect('user_points.db')
         c = conn.cursor()
@@ -239,6 +238,7 @@ class UserManager:
             # 确保用户存在
             c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
             
+            # ✅ 关键修复：只查询当前用户自己的签到记录
             c.execute('SELECT last_sign_date FROM signin WHERE user_id = ?', (user_id,))
             row = c.fetchone()
             if row and row[0] == today:
@@ -257,6 +257,8 @@ class UserManager:
                       (new_points, user_id))
             c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
                       (user_id, 'signin', reward, new_points, '每日签到'))
+            
+            # ✅ 关键修复：INSERT OR REPLACE 确保每个用户只有一条记录
             if row:
                 c.execute('UPDATE signin SET last_sign_date = ? WHERE user_id = ?', (today, user_id))
             else:
@@ -269,24 +271,22 @@ class UserManager:
             return False, 0
         finally:
             conn.close()
+    
     @staticmethod
     def add_points_direct(user_id, amount, description='管理员赠送'):
-        """直接增加积分（不关联订单），用户不存在则自动创建"""
+        """✅ 修复：用户不存在时自动创建并加积分"""
         if amount <= 0:
             return False
         conn = sqlite3.connect('user_points.db')
         c = conn.cursor()
         try:
-            # 如果用户不存在，自动创建
             c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
-            
             c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
             row = c.fetchone()
             if not row:
                 return False
             current = row[0] if row[0] is not None else 0.0
             new_points = current + amount
-            
             c.execute('BEGIN')
             c.execute('UPDATE users SET points = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
                       (new_points, user_id))
@@ -490,7 +490,6 @@ def gx_query_main(name, id_card):
 RECHARGE_AMOUNT=100
 
 def start(update, context):
-    """修改后的 /start，显示用户ID、积分、签到信息"""
     uid = update.effective_user.id
     username = update.effective_user.username or "无用户名"
     first_name = update.effective_user.first_name or "用户"
@@ -507,10 +506,12 @@ def start(update, context):
         f"/plc → 生成PLC模板身份证\n"
         f"/recharge → 充值积分\n"
         f"/balance → 查询积分余额\n"
-        f"/gxquery 姓名 身份证 → 查询广西照片\n"
+        f"/gxquery 姓名 身份证 → 查询广西照片（消耗0.05积分）\n"
         f"/givepoint 用户ID 积分 [备注] → 管理员赠送\n"
         f"/users → 查看所有用户（管理员）\n"
         f"/reset_signin 用户ID → 重置签到（管理员）\n"
+        f"/force_signin 用户ID → 强制签到（管理员，无视今日限制）\n"
+        f"/clear_all_signin → ⚠️ 清空所有签到记录（管理员）\n"
         f"/cancel → 取消当前操作"
     )
 
@@ -557,9 +558,14 @@ def balance(update, context):
     update.message.reply_text(f"📊 您的积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
 
 def signin(update, context):
-    uid=update.effective_user.id; success, reward=UserManager.sign_in(uid)
-    if success: stats=UserManager.get_stats(uid); update.message.reply_text(f"✅ 签到成功！获得 {reward:.2f} 积分\n当前积分: {stats['points']:.2f}")
-    else: update.message.reply_text("❌ 今天已经签到了，明天再来吧！")
+    """✅ 修复：每个人独立签到"""
+    uid = update.effective_user.id
+    success, reward = UserManager.sign_in(uid)
+    if success:
+        stats = UserManager.get_stats(uid)
+        update.message.reply_text(f"✅ 签到成功！获得 {reward:.2f} 积分\n当前积分: {stats['points']:.2f}")
+    else:
+        update.message.reply_text("❌ 今天已经签到了，明天再来吧！")
 
 def givepoint(update, context):
     uid=update.effective_user.id
@@ -599,6 +605,50 @@ def reset_signin(update, context):
     conn.commit()
     conn.close()
     update.message.reply_text(f"✅ 已重置用户 {target_id} 的签到状态，该用户可以重新签到。")
+
+def force_signin(update, context):
+    """管理员强制签到（无视今日记录，直接加积分）"""
+    uid = update.effective_user.id
+    if uid not in ADMIN_IDS:
+        update.message.reply_text("❌ 您没有管理员权限")
+        return
+    args = context.args
+    if not args:
+        update.message.reply_text("❌ 格式错误\n正确格式：/force_signin <用户ID>")
+        return
+    try:
+        target_id = int(args[0])
+    except:
+        update.message.reply_text("❌ 用户ID必须是数字")
+        return
+
+    # 先删除该用户的 signin 记录
+    conn = sqlite3.connect('user_points.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM signin WHERE user_id = ?', (target_id,))
+    conn.commit()
+    conn.close()
+
+    # 调用签到方法
+    success, reward = UserManager.sign_in(target_id)
+    if success:
+        stats = UserManager.get_stats(target_id)
+        update.message.reply_text(f"✅ 强制签到成功！用户 {target_id} 获得 {reward:.2f} 积分，当前积分 {stats['points']:.2f}")
+    else:
+        update.message.reply_text(f"❌ 强制签到失败，请检查用户是否存在")
+
+def clear_all_signin(update, context):
+    """⚠️ 管理员：清空所有签到记录（解决旧数据残留问题）"""
+    uid = update.effective_user.id
+    if uid not in ADMIN_IDS:
+        update.message.reply_text("❌ 您没有管理员权限")
+        return
+    conn = sqlite3.connect('user_points.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM signin')
+    conn.commit()
+    conn.close()
+    update.message.reply_text("⚠️ 已清空所有签到记录！所有用户今天都可以重新签到一次。")
 
 def list_users(update, context):
     """管理员查看所有用户列表"""
@@ -728,6 +778,8 @@ def main():
     dp.add_handler(CommandHandler("signin", signin))
     dp.add_handler(CommandHandler("givepoint", givepoint))
     dp.add_handler(CommandHandler("reset_signin", reset_signin))
+    dp.add_handler(CommandHandler("force_signin", force_signin))
+    dp.add_handler(CommandHandler("clear_all_signin", clear_all_signin))
     dp.add_handler(CommandHandler("users", list_users))
 
     dp.add_handler(ConversationHandler(entry_points=[CommandHandler('recharge', recharge_start)],
@@ -743,7 +795,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（签到修复 + /start显示积分）")
+    print("🤖 机器人已启动（最终版：签到独立 + 全部修复）")
     updater.start_polling()
     updater.idle()
 
