@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 最终版（自动识别验证码+完整功能）=====")
+print("===== Bot 最终完整版（所有函数齐全）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64
 from PIL import Image, ImageDraw, ImageFont
@@ -11,6 +11,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request, jsonify
 
+# ===== OCR 自动识别验证码 =====
 try:
     import ddddocr
     OCR_AVAILABLE = True
@@ -22,7 +23,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
+# 请确保在环境变量中设置 BOT_TOKEN，或直接在此硬编码（不推荐）
 BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
+if BOT_TOKEN == "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM":
+    print("⚠️ 警告：您使用的是示例 Token，请务必替换为您的真实 Token！")
+
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
     "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
@@ -43,7 +48,7 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
-ADMIN_IDS = [6040143940]
+ADMIN_IDS = [6040143940]  # 您的管理员ID
 
 # ===== JSON存储 =====
 USERS_FILE = "users.json"
@@ -414,3 +419,574 @@ def callback():
     except: return jsonify({'status':'success'}),200
 
 def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+
+# ===== Telegram 命令（所有函数均已定义） =====
+WAITING_PHONE, WAITING_CAPTCHA, WAITING_SMS = 100,101,102
+RECHARGE_AMOUNT = 1
+
+def start(update, context):
+    uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
+    update.message.reply_text(
+        f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 签到得0.05分\n\n"
+        f"命令：\n/hainansf 身份证 → 海南大头\n/sfz → 生成身份证\n/plc → PLC身份证\n/recharge → 充值\n/balance → 余额\n"
+        f"/gxquery 姓名 身份证 → 广西照片（自动识别验证码）\n/signin → 签到\n/givepoint 用户ID 积分 [备注] → 管理员赠送\n"
+        f"/users → 用户列表（管理员）\n/reset_signin 用户ID → 重置签到\n/force_signin 用户ID → 强制签到\n"
+        f"/clear_all_signin → 清空所有签到\n/cancel → 取消"
+    )
+
+def gxquery_start(update, context):
+    uid=update.effective_user.id; args=context.args
+    if len(args)<2:
+        update.message.reply_text("❌ 格式：/gxquery <姓名> <身份证号>")
+        return ConversationHandler.END
+    name, id_card = args[0].strip(), args[1].strip()
+    if len(id_card)!=18:
+        update.message.reply_text("❌ 身份证18位")
+        return ConversationHandler.END
+    stats=get_user_stats(uid)
+    if stats['points']<GX_QUERY_PRICE:
+        update.message.reply_text(f"❌ 积分不足，需要 {GX_QUERY_PRICE:.2f}")
+        return ConversationHandler.END
+    users[str(uid)]['points']=users[str(uid)].get('points',0.0)-GX_QUERY_PRICE
+    save_users()
+    context.user_data['gx_name']=name
+    context.user_data['gx_idcard']=id_card
+    session = requests.Session()
+    context.user_data['gx_session']=session
+    success, info = gx_login(session, id_card)
+    if success:
+        update.message.reply_text("⏳ 登录成功，自动识别验证码...")
+        return gx_do_query(update, context)
+    elif "未注册" in info or "不存在" in info:
+        update.message.reply_text("⚠️ 该身份证未注册，请输入手机号：")
+        return WAITING_PHONE
+    else:
+        users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+        save_users()
+        update.message.reply_text(f"❌ 登录失败: {info}\n已退还积分")
+        return ConversationHandler.END
+
+def gx_do_query(update, context):
+    uid=update.effective_user.id
+    session=context.user_data['gx_session']
+    name=context.user_data['gx_name']
+    id_card=context.user_data['gx_idcard']
+    success, img_b64, uuid, auto_code = gx_get_captcha(session)
+    if not success:
+        users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+        save_users()
+        update.message.reply_text("❌ 获取验证码失败，已退还积分")
+        return ConversationHandler.END
+    context.user_data['gx_uuid']=uuid
+    if auto_code:
+        context.user_data['gx_auto_code']=auto_code
+        return gx_do_query_with_code(update, context, auto_code)
+    else:
+        img_bytes=base64.b64decode(img_b64)
+        update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请输入图形验证码：")
+        return WAITING_CAPTCHA
+
+def gx_do_query_with_code(update, context, code):
+    uid=update.effective_user.id
+    session=context.user_data['gx_session']
+    name=context.user_data['gx_name']
+    id_card=context.user_data['gx_idcard']
+    uuid=context.user_data.get('gx_uuid')
+    success, file_id, err = gx_query_photo(session, name, id_card, uuid, code)
+    if success:
+        dl_success, content = gx_download_photo(session, file_id)
+        if dl_success:
+            update.message.reply_photo(photo=io.BytesIO(content), caption=f"✅ {name} 照片\n消耗 {GX_QUERY_PRICE:.2f} 积分")
+            context.user_data.clear()
+            return ConversationHandler.END
+        else:
+            users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+            save_users()
+            update.message.reply_text(f"❌ 下载照片失败: {content}\n已退还积分")
+            return ConversationHandler.END
+    else:
+        if "未注册" in err or "不存在" in err:
+            update.message.reply_text("⚠️ 该身份证未注册，请输入手机号：")
+            return WAITING_PHONE
+        else:
+            update.message.reply_text(f"❌ 验证码错误或查询失败，请重试")
+            session=context.user_data['gx_session']
+            success2, img_b64, uuid2, _ = gx_get_captcha(session)
+            if success2:
+                context.user_data['gx_uuid']=uuid2
+                img_bytes=base64.b64decode(img_b64)
+                update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请输入图形验证码：")
+                return WAITING_CAPTCHA
+            else:
+                users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+                save_users()
+                update.message.reply_text("❌ 获取验证码失败，已退还积分")
+                return ConversationHandler.END
+
+def gx_wait_phone(update, context):
+    phone=update.message.text.strip()
+    if not phone or len(phone)<11:
+        update.message.reply_text("❌ 请输入正确手机号：")
+        return WAITING_PHONE
+    context.user_data['gx_phone']=phone
+    session=context.user_data['gx_session']
+    success, img_b64, uuid, auto_code = gx_get_captcha(session)
+    if not success:
+        uid=update.effective_user.id
+        users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+        save_users()
+        update.message.reply_text("❌ 获取验证码失败，已退还积分")
+        return ConversationHandler.END
+    context.user_data['gx_uuid']=uuid
+    if auto_code:
+        context.user_data['gx_auto_code']=auto_code
+        sms_sent = gx_send_sms(session, phone, auto_code, uuid)
+        if sms_sent:
+            update.message.reply_text("✅ 短信验证码已发送（自动识别验证码成功），请输入短信验证码：")
+            return WAITING_SMS
+        else:
+            uid=update.effective_user.id
+            users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+            save_users()
+            update.message.reply_text("❌ 发送短信失败，已退还积分")
+            return ConversationHandler.END
+    else:
+        img_bytes=base64.b64decode(img_b64)
+        update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请输入图形验证码：")
+        return WAITING_CAPTCHA
+
+def gx_wait_captcha(update, context):
+    captcha=update.message.text.strip().upper()
+    if not captcha:
+        update.message.reply_text("请输入验证码：")
+        return WAITING_CAPTCHA
+    context.user_data['gx_captcha']=captcha
+    session=context.user_data['gx_session']
+    name=context.user_data['gx_name']
+    id_card=context.user_data['gx_idcard']
+    uuid=context.user_data.get('gx_uuid')
+    success, file_id, err = gx_query_photo(session, name, id_card, uuid, captcha)
+    if success:
+        dl_success, content = gx_download_photo(session, file_id)
+        if dl_success:
+            update.message.reply_photo(photo=io.BytesIO(content), caption=f"✅ {name} 照片\n消耗 {GX_QUERY_PRICE:.2f} 积分")
+            context.user_data.clear()
+            return ConversationHandler.END
+        else:
+            uid=update.effective_user.id
+            users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+            save_users()
+            update.message.reply_text(f"❌ 下载照片失败: {content}\n已退还积分")
+            return ConversationHandler.END
+    else:
+        if "未注册" in err or "不存在" in err:
+            update.message.reply_text("⚠️ 该身份证未注册，请输入手机号：")
+            return WAITING_PHONE
+        else:
+            uid=update.effective_user.id
+            users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+            save_users()
+            update.message.reply_text(f"❌ 查询失败: {err}\n已退还积分")
+            return ConversationHandler.END
+
+def gx_wait_sms(update, context):
+    sms=update.message.text.strip()
+    if not sms:
+        update.message.reply_text("请输入短信验证码：")
+        return WAITING_SMS
+    session=context.user_data['gx_session']
+    name=context.user_data['gx_name']
+    id_card=context.user_data['gx_idcard']
+    phone=context.user_data['gx_phone']
+    captcha = context.user_data.get('gx_auto_code', context.user_data.get('gx_captcha', ''))
+    uuid = context.user_data.get('gx_uuid', '')
+    update.message.reply_text("⏳ 注册中...")
+    success, info = gx_register(session, phone, sms, captcha, name, id_card)
+    if success:
+        update.message.reply_text("✅ 注册成功，正在登录查询...")
+        login_ok, _ = gx_login(session, id_card)
+        if login_ok:
+            success2, img_b64, uuid2, auto_code2 = gx_get_captcha(session)
+            if success2:
+                context.user_data['gx_uuid']=uuid2
+                if auto_code2:
+                    context.user_data['gx_auto_code']=auto_code2
+                    return gx_do_query_with_code(update, context, auto_code2)
+                else:
+                    img_bytes=base64.b64decode(img_b64)
+                    update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请再次输入图形验证码：")
+                    return WAITING_CAPTCHA
+            else:
+                uid=update.effective_user.id
+                users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+                save_users()
+                update.message.reply_text("❌ 获取验证码失败，已退还积分")
+                return ConversationHandler.END
+        else:
+            uid=update.effective_user.id
+            users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+            save_users()
+            update.message.reply_text("❌ 登录失败，已退还积分")
+            return ConversationHandler.END
+    else:
+        uid=update.effective_user.id
+        users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+        save_users()
+        update.message.reply_text(f"❌ 注册失败: {info}\n已退还积分")
+        return ConversationHandler.END
+
+def gxquery_cancel(update, context):
+    uid=update.effective_user.id
+    if 'gx_session' in context.user_data:
+        users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
+        save_users()
+    context.user_data.clear()
+    update.message.reply_text("已取消，积分已退还")
+    return ConversationHandler.END
+
+# ===== 以下所有命令均已定义 =====
+def hainansf(update, context):
+    args=context.args
+    if not args:
+        update.message.reply_text("❌ 格式错误\n正确格式：/hainansf <身份证号>")
+        return
+    id_card=args[0].strip()
+    if len(id_card)!=18:
+        update.message.reply_text("❌ 身份证号必须为18位")
+        return
+    update.message.reply_text("⏳ 正在查询海南系统...")
+    success, result = query_id_card_sync(id_card)
+    if success:
+        context.bot.send_document(chat_id=update.effective_chat.id, document=io.BytesIO(result), filename=f"{id_card}.pdf", caption="✅ 查询成功")
+    else:
+        update.message.reply_text(f"❌ 查询失败：{result}")
+
+def cancel(update, context):
+    update.message.reply_text("已取消")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+def recharge_start(update, context):
+    uid=update.effective_user.id
+    ensure_user(uid)
+    stats=get_user_stats(uid)
+    update.message.reply_text(f"💰 当前积分 {stats['points']:.2f}\n请输入 USDT 金额：")
+    return RECHARGE_AMOUNT
+
+def recharge_amount(update, context):
+    uid=update.effective_user.id
+    try:
+        amt=float(re.sub(r'[^\d.]','',update.message.text))
+    except:
+        update.message.reply_text("❌ 请输入数字")
+        return RECHARGE_AMOUNT
+    if amt<=0:
+        update.message.reply_text("金额需大于0")
+        return RECHARGE_AMOUNT
+    points=amt*POINTS_RATE
+    unique_id=f"ORDER_{int(time.time())}_{uid}_{random.randint(1000,9999)}"
+    resp=client.pay_link(amt, unique_id)
+    if not resp or resp.get('status')!='success':
+        update.message.reply_text(f"❌ 创建订单失败: {resp.get('msg','未知错误')}")
+        return ConversationHandler.END
+    order_id=resp['data']['order_id']
+    pay_url=resp['data']['pay_url']
+    orders[unique_id]={'user_id':uid,'amount':amt,'order_id':order_id,'status':'pending','timestamp':time.time()}
+    keyboard=[[InlineKeyboardButton("💳 去支付", url=pay_url)]]
+    update.message.reply_text(f"✅ 订单已创建\n订单号: {order_id}\n金额: {amt:.2f} USDT → {points:.2f} 积分\n点击按钮支付", reply_markup=InlineKeyboardMarkup(keyboard))
+    return ConversationHandler.END
+
+def balance(update, context):
+    stats=get_user_stats(update.effective_user.id)
+    update.message.reply_text(f"📊 积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
+
+def signin(update, context):
+    uid=update.effective_user.id
+    ensure_user(uid)
+    today=time.strftime('%Y-%m-%d')
+    if users[str(uid)].get('last_sign_date','')==today:
+        update.message.reply_text("❌ 今天已签到")
+        return
+    users[str(uid)]['points']=users[str(uid)].get('points',0.0)+0.05
+    users[str(uid)]['last_sign_date']=today
+    save_users()
+    stats=get_user_stats(uid)
+    update.message.reply_text(f"✅ 签到成功！+0.05 积分，当前 {stats['points']:.2f}")
+
+def givepoint(update, context):
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        update.message.reply_text("❌ 无权限")
+        return
+    args=context.args
+    if len(args)<2:
+        update.message.reply_text("❌ /givepoint <用户ID> <积分> [备注]")
+        return
+    try:
+        target_id=int(args[0])
+        amount=float(args[1])
+    except:
+        update.message.reply_text("❌ 参数错误")
+        return
+    ensure_user(target_id)
+    users[str(target_id)]['points']=users[str(target_id)].get('points',0.0)+amount
+    save_users()
+    stats=get_user_stats(target_id)
+    update.message.reply_text(f"✅ 已向 {target_id} 赠送 {amount:.2f} 积分，当前 {stats['points']:.2f}")
+
+def reset_signin(update, context):
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    args=context.args
+    if not args:
+        return
+    try:
+        target_id=int(args[0])
+    except:
+        return
+    ensure_user(target_id)
+    users[str(target_id)]['last_sign_date']=''
+    save_users()
+    update.message.reply_text(f"✅ 已重置 {target_id} 签到")
+
+def force_signin(update, context):
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    args=context.args
+    if not args:
+        return
+    try:
+        target_id=int(args[0])
+    except:
+        return
+    ensure_user(target_id)
+    users[str(target_id)]['last_sign_date']=''
+    users[str(target_id)]['points']=users[str(target_id)].get('points',0.0)+0.05
+    users[str(target_id)]['last_sign_date']=time.strftime('%Y-%m-%d')
+    save_users()
+    stats=get_user_stats(target_id)
+    update.message.reply_text(f"✅ 强制签到成功，{target_id} 当前积分 {stats['points']:.2f}")
+
+def clear_all_signin(update, context):
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    for k in users:
+        users[k]['last_sign_date']=''
+    save_users()
+    update.message.reply_text("✅ 已清空所有签到日期")
+
+def list_users(update, context):
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        return
+    if not users:
+        update.message.reply_text("📭 无用户")
+    else:
+        msg="📊 用户列表：\n"
+        for k,v in users.items():
+            msg+=f"ID: `{k}`，积分: {v.get('points',0):.2f}\n"
+        update.message.reply_text(msg, parse_mode='Markdown')
+
+# ===== sfz 对话 =====
+SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
+def sfz_start(update,context):
+    update.message.reply_text("请输入姓名：")
+    return SFZ_NAME
+def sfz_name(update,context):
+    context.user_data['name']=update.message.text.strip()
+    update.message.reply_text("请输入18位身份证号：")
+    return SFZ_ID
+def sfz_id(update,context):
+    id_card=update.message.text.strip().upper()
+    if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
+        update.message.reply_text("格式错误，重新输入：")
+        return SFZ_ID
+    context.user_data['id_number']=id_card
+    update.message.reply_text("请输入民族：")
+    return SFZ_NATION
+def sfz_nation(update,context):
+    context.user_data['nation']=update.message.text.strip()
+    update.message.reply_text("请输入地址：")
+    return SFZ_ADDR
+def sfz_address(update,context):
+    context.user_data['address']=update.message.text.strip()
+    update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
+    return SFZ_EXPIRY
+def sfz_expiry(update,context):
+    context.user_data['expiry']=update.message.text.strip()
+    update.message.reply_text("请发送本人照片：")
+    return SFZ_PHOTO
+def sfz_photo(update,context):
+    if not update.message.photo:
+        update.message.reply_text("请发送图片")
+        return SFZ_PHOTO
+    photo=update.message.photo[-1]
+    file=photo.get_file()
+    with tempfile.NamedTemporaryFile(suffix='.jpg',delete=False) as tmp:
+        file.download(tmp.name)
+        photo_path=tmp.name
+    data=context.user_data
+    if not all(k in data for k in ['name','id_number','nation','address','expiry']):
+        update.message.reply_text("信息不完整，重新 /sfz")
+        return ConversationHandler.END
+    update.message.reply_text("⏳ 生成中...")
+    try:
+        img,pdf=generate_id_card_sync(data['name'],data['id_number'],data['nation'],data['address'],data['expiry'],photo_path)
+        update.message.reply_photo(photo=img,caption=f"✅ {data['name']} 的身份证")
+        context.bot.send_document(chat_id=update.effective_chat.id, document=pdf, filename=f"{data['name']}_身份证.pdf")
+    except Exception as e:
+        update.message.reply_text(f"❌ 失败: {e}")
+    finally:
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+        context.user_data.clear()
+    return ConversationHandler.END
+
+# ===== plc 对话 =====
+PLC_NAME,PLC_ID,PLC_ADDR_CONFIRM,PLC_ADDR_MANUAL,PLC_PHOTO=range(10,15)
+def plc_start(update,context):
+    update.message.reply_text("请输入姓名：")
+    return PLC_NAME
+def plc_name(update,context):
+    context.user_data['name']=update.message.text.strip()
+    update.message.reply_text("请输入18位身份证号：")
+    return PLC_ID
+def plc_id(update,context):
+    id_card=update.message.text.strip().upper()
+    if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
+        update.message.reply_text("格式错误，重新输入：")
+        return PLC_ID
+    context.user_data['id_number']=id_card
+    address=get_address_from_idcard(id_card)
+    if address:
+        context.user_data['auto_addr']=address
+        keyboard=[[InlineKeyboardButton("✅ 使用", callback_data="plc_addr_yes")],[InlineKeyboardButton("❌ 手动", callback_data="plc_addr_no")]]
+        update.message.reply_text(f"✅ 匹配到地址：{address}\n是否使用？", reply_markup=InlineKeyboardMarkup(keyboard))
+        return PLC_ADDR_CONFIRM
+    else:
+        update.message.reply_text("请手动输入地址：")
+        return PLC_ADDR_MANUAL
+def plc_addr_confirm_callback(update,context):
+    query=update.callback_query
+    query.answer()
+    if query.data=="plc_addr_yes":
+        address=context.user_data.get('auto_addr')
+        if address:
+            context.user_data['address']=address
+            query.edit_message_text(f"✅ 已使用：{address}\n请发送照片")
+            return PLC_PHOTO
+        else:
+            query.edit_message_text("未找到，请输入地址")
+            return PLC_ADDR_MANUAL
+    else:
+        query.edit_message_text("请输入地址：")
+        return PLC_ADDR_MANUAL
+def plc_addr_manual(update,context):
+    addr=update.message.text.strip()
+    if not addr:
+        update.message.reply_text("地址不能为空")
+        return PLC_ADDR_MANUAL
+    context.user_data['address']=addr
+    update.message.reply_text("请发送照片")
+    return PLC_PHOTO
+def plc_photo(update,context):
+    if not update.message.photo:
+        update.message.reply_text("请发送图片")
+        return PLC_PHOTO
+    photo=update.message.photo[-1]
+    file=photo.get_file()
+    with tempfile.NamedTemporaryFile(suffix='.jpg',delete=False) as tmp:
+        file.download(tmp.name)
+        photo_path=tmp.name
+    data=context.user_data
+    if not all(k in data for k in ['name','id_number','address']):
+        update.message.reply_text("信息不完整，重新 /plc")
+        return ConversationHandler.END
+    update.message.reply_text("⏳ 生成中...")
+    try:
+        img,pdf=generate_plc_sync(data['name'],data['id_number'],data['address'],photo_path)
+        update.message.reply_photo(photo=img,caption=f"✅ {data['name']} 的PLC身份证")
+        context.bot.send_document(chat_id=update.effective_chat.id, document=pdf, filename=f"{data['name']}_身份证_PLC.pdf")
+    except FileNotFoundError as e:
+        update.message.reply_text(f"❌ 文件缺失：{e}\n请确保 plc/ 目录下有 mb.jpg 和 10.ttf")
+    except Exception as e:
+        update.message.reply_text(f"❌ 失败: {e}")
+    finally:
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+        context.user_data.clear()
+    return ConversationHandler.END
+
+# ===== 主程序 =====
+def main():
+    global bot
+    updater=Updater(BOT_TOKEN, request_kwargs={'read_timeout':60,'connect_timeout':30})
+    bot=updater.bot
+    dp=updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("hainansf", hainansf))
+    dp.add_handler(CommandHandler("balance", balance))
+    dp.add_handler(CommandHandler("cancel", cancel))
+    dp.add_handler(CommandHandler("signin", signin))
+    dp.add_handler(CommandHandler("givepoint", givepoint))
+    dp.add_handler(CommandHandler("reset_signin", reset_signin))
+    dp.add_handler(CommandHandler("force_signin", force_signin))
+    dp.add_handler(CommandHandler("clear_all_signin", clear_all_signin))
+    dp.add_handler(CommandHandler("users", list_users))
+
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('gxquery', gxquery_start)],
+        states={
+            WAITING_PHONE: [MessageHandler(Filters.text & ~Filters.command, gx_wait_phone)],
+            WAITING_CAPTCHA: [MessageHandler(Filters.text & ~Filters.command, gx_wait_captcha)],
+            WAITING_SMS: [MessageHandler(Filters.text & ~Filters.command, gx_wait_sms)],
+        },
+        fallbacks=[CommandHandler('cancel', gxquery_cancel)]
+    ))
+
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('recharge', recharge_start)],
+        states={RECHARGE_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, recharge_amount)]},
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('sfz', sfz_start)],
+        states={
+            SFZ_NAME: [MessageHandler(Filters.text & ~Filters.command, sfz_name)],
+            SFZ_ID: [MessageHandler(Filters.text & ~Filters.command, sfz_id)],
+            SFZ_NATION: [MessageHandler(Filters.text & ~Filters.command, sfz_nation)],
+            SFZ_ADDR: [MessageHandler(Filters.text & ~Filters.command, sfz_address)],
+            SFZ_EXPIRY: [MessageHandler(Filters.text & ~Filters.command, sfz_expiry)],
+            SFZ_PHOTO: [MessageHandler(Filters.photo, sfz_photo)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('plc', plc_start)],
+        states={
+            PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
+            PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
+            PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
+            PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
+            PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    ))
+
+    threading.Thread(target=check_orders, daemon=True).start()
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    print("🔄 开始轮询 Telegram 服务器...")
+    updater.start_polling()
+    print("✅ 机器人已进入运行状态，等待消息...")
+    updater.idle()
+    print("⏹️ 机器人已停止")
+
+if __name__ == "__main__":
+    main()
