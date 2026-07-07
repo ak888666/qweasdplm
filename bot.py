@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（完整实现）
+合并版机器人：身份证生成 + （完整实现）
 """
 
 import sys
@@ -44,29 +44,30 @@ logger = logging.getLogger('MergedBot')
 # ============================================================
 #   ⚠️ 必填项：请将下方 Token / Cookie / 支付密钥替换为真实数据
 # ============================================================
-BOT_TOKEN = "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"   # 替换为您的机器人 Token
+# 从环境变量读取，若无则使用下方的默认值（您已实际填入）
+BOT_TOKEN = os.environ.get('BOT_TOKEN', "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw")
 
 # ----- 海南查询接口 Cookie -----
 BASE_COOKIES = {
-    "cna": "REPLACE_CNA_HERE",
-    "JSESSIONID": "REPLACE_JSESSIONID_HERE",
-    "SESSION": "REPLACE_SESSION_HERE",
-    "SERVERID": "REPLACE_SERVERID_HERE",
+    "cna": os.environ.get('CNA', "REPLACE_CNA_HERE"),
+    "JSESSIONID": os.environ.get('JSESSIONID', "REPLACE_JSESSIONID_HERE"),
+    "SESSION": os.environ.get('SESSION', "REPLACE_SESSION_HERE"),
+    "SERVERID": os.environ.get('SERVERID', "REPLACE_SERVERID_HERE"),
 }
-ZWFW_TOKEN = "REPLACE_ZWFW_TOKEN_HERE"
+ZWFW_TOKEN = os.environ.get('ZWFW_TOKEN', "REPLACE_ZWFW_TOKEN_HERE")
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ----- OkayPay 支付配置 -----
-OKPAY_ID = 123456                    # 替换为您的商户ID
-OKPAY_TOKEN = 'your_merchant_token'  # 替换为您的商户秘钥
+# ----- OkayPay 支付配置（已填入您的真实商户信息） -----
+OKPAY_ID = int(os.environ.get('OKPAY_ID', 323))
+OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN', 'dcf3c247fd03a45f58af4a42af66885dd7bb1c3c1150cd3b72b0318226043e42')
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
-CALLBACK_URL = 'https://你的域名/OkPay.php'  # 必须外网可访问（Actions 中无效，但保留）
-PORT = 1010                         # Flask 监听端口
-POINTS_RATE = 1                     # 1 USDT = 1 积分
-CHECK_INTERVAL = 0.5                # 轮询间隔（秒）
-ORDER_TIMEOUT = 1800                # 订单超时（秒）
+CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://your-domain.com/OkPay.php')  # 回调地址（可不设置）
+PORT = 1010
+POINTS_RATE = 1
+CHECK_INTERVAL = 0.5
+ORDER_TIMEOUT = 1800
 
 # ============================================================
 #  1. 身份证生成相关函数（原有，完整保留）
