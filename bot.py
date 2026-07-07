@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 完整版（全功能精简）=====")
+print("===== Bot 完整版（签到修复 + /start显示积分）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, sqlite3, hashlib, hmac, threading, logging, re, random, base64, urllib.parse
 from typing import Optional
@@ -40,7 +40,7 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
-ADMIN_IDS = [6040143940]
+ADMIN_IDS = [6040143940]  # 管理员ID列表
 
 # ===== 身份证生成函数 =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
@@ -165,7 +165,7 @@ def init_db():
     conn.commit(); conn.close(); logger.info("数据库初始化完成")
 init_db()
 
-# ===== UserManager（已修复签到和赠送） =====
+# ===== UserManager =====
 class UserManager:
     @staticmethod
     def get_user(user_id):
@@ -490,7 +490,29 @@ def gx_query_main(name, id_card):
 RECHARGE_AMOUNT=100
 
 def start(update, context):
-    update.message.reply_text("小宇机器人功能列表：\n/hainansf +空格+身份证 → 查询海南大头\n/sfz → 生成标准身份证（双面）\n/plc → 生成PLC模板身份证\n/recharge → 充值积分\n/balance → 查询积分余额\n/gxquery 姓名 身份证 → 查询广西道路运输照片（消耗0.05积分）\n/signin → 每日签到（获得0.05积分）\n/givepoint 用户ID 积分 [备注] → 管理员赠送积分\n/cancel → 取消当前操作")
+    """修改后的 /start，显示用户ID、积分、签到信息"""
+    uid = update.effective_user.id
+    username = update.effective_user.username or "无用户名"
+    first_name = update.effective_user.first_name or "用户"
+    stats = UserManager.get_stats(uid)
+    update.message.reply_text(
+        f"👤 用户名称：{first_name}\n"
+        f"🆔 用户ID：{uid}\n"
+        f"💎 账户积分：{stats['points']:.2f}\n"
+        f"🌟 每日签到可获得 0.05 积分\n"
+        f"使用 /signin 签到\n\n"
+        f"可用命令：\n"
+        f"/hainansf +空格+身份证 → 查询海南大头\n"
+        f"/sfz → 生成标准身份证（双面）\n"
+        f"/plc → 生成PLC模板身份证\n"
+        f"/recharge → 充值积分\n"
+        f"/balance → 查询积分余额\n"
+        f"/gxquery 姓名 身份证 → 查询广西照片\n"
+        f"/givepoint 用户ID 积分 [备注] → 管理员赠送\n"
+        f"/users → 查看所有用户（管理员）\n"
+        f"/reset_signin 用户ID → 重置签到（管理员）\n"
+        f"/cancel → 取消当前操作"
+    )
 
 def hainansf(update, context):
     args=context.args
@@ -555,6 +577,47 @@ def givepoint(update, context):
         update.message.reply_text(f"✅ 已向用户 {target_id} 赠送 {amount:.2f} 积分，当前积分 {stats['points']:.2f}")
     else:
         update.message.reply_text(f"❌ 赠送失败，请确认用户 {target_id} 存在")
+
+def reset_signin(update, context):
+    """管理员重置签到状态"""
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        update.message.reply_text("❌ 您没有管理员权限")
+        return
+    args=context.args
+    if not args:
+        update.message.reply_text("❌ 格式错误\n正确格式：/reset_signin <用户ID>")
+        return
+    try:
+        target_id=int(args[0])
+    except:
+        update.message.reply_text("❌ 用户ID必须是数字")
+        return
+    conn=sqlite3.connect('user_points.db')
+    c=conn.cursor()
+    c.execute('DELETE FROM signin WHERE user_id = ?', (target_id,))
+    conn.commit()
+    conn.close()
+    update.message.reply_text(f"✅ 已重置用户 {target_id} 的签到状态，该用户可以重新签到。")
+
+def list_users(update, context):
+    """管理员查看所有用户列表"""
+    uid=update.effective_user.id
+    if uid not in ADMIN_IDS:
+        update.message.reply_text("❌ 您没有管理员权限")
+        return
+    conn=sqlite3.connect('user_points.db')
+    c=conn.cursor()
+    c.execute('SELECT user_id, points, last_active FROM users ORDER BY user_id')
+    rows=c.fetchall()
+    conn.close()
+    if not rows:
+        update.message.reply_text("📭 暂无用户数据")
+        return
+    msg="📊 用户列表：\n"
+    for row in rows:
+        msg += f"ID: `{row[0]}`，积分: {row[1]:.2f}\n"
+    update.message.reply_text(msg, parse_mode='Markdown')
 
 def gxquery(update, context):
     uid=update.effective_user.id; args=context.args
@@ -664,6 +727,8 @@ def main():
     dp.add_handler(CommandHandler("gxquery", gxquery))
     dp.add_handler(CommandHandler("signin", signin))
     dp.add_handler(CommandHandler("givepoint", givepoint))
+    dp.add_handler(CommandHandler("reset_signin", reset_signin))
+    dp.add_handler(CommandHandler("users", list_users))
 
     dp.add_handler(ConversationHandler(entry_points=[CommandHandler('recharge', recharge_start)],
         states={RECHARGE_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, recharge_amount)]},
@@ -678,7 +743,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（全功能）")
+    print("🤖 机器人已启动（签到修复 + /start显示积分）")
     updater.start_polling()
     updater.idle()
 
