@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（带调试日志）
+合并版机器人：身份证生成 + OkayPay 自助充值（最终修复）
 """
 
 import sys
@@ -31,10 +31,8 @@ from telegram.ext import (
 )
 from flask import Flask, request, jsonify
 
-# ---------- 禁用 SSL 警告 ----------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ---------- 日志配置 ----------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -42,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger('MergedBot')
 
 # ============================================================
-#  配置（优先环境变量，若为空则使用默认值）
+#  配置（已按您后台信息修改）
 # ============================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
@@ -57,20 +55,17 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ----- OkayPay 配置（请填写您刷新后的新密钥） -----
 OKPAY_ID = int(os.environ.get('OKPAY_ID') or 323)
-# ↓↓↓ 请将下方密钥替换为您在后台刷新后的新密钥 ↓↓↓
 OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'fa7c788e746a54a0723cb2372f9160d593321aca910afbdb2ed0923564e5def1'
-# ↑↑↑ 注意：如果您通过 GitHub Secrets 传递 OKPAY_TOKEN，则无需修改此行 ↑↑↑
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
-CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://your-domain.com/OkPay.php'
+CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://example.com/ok'   # 与后台一致
 PORT = 1010
 POINTS_RATE = 1
 CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 
 # ============================================================
-#  1. 身份证生成相关函数（完整实现）
+#  1. 身份证生成相关函数（完整）
 # ============================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -337,7 +332,7 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ============================================================
-#  2. 支付模块（完整实现，带详细调试日志）
+#  2. 支付模块（含数据库、用户管理、OkayPay 客户端）
 # ============================================================
 
 def init_db():
@@ -485,25 +480,15 @@ class OkayPay:
         self.api_url = api_url
 
     def _sign(self, params):
-        # 过滤空值
         params = {k: v for k, v in params.items() if v is not None and v != ''}
-        # 添加 id
         params['id'] = str(self.appid)
-        # 按字典序排序
         sorted_params = dict(sorted(params.items()))
-        # 拼接查询字符串
         query_string = urllib.parse.urlencode(sorted_params)
-        # 解码（模拟 PHP 的 urldecode）
         sign_str = urllib.parse.unquote(query_string) + '&token=' + self.token
-        # 计算 MD5 大写
         sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
-
-        # ----- 打印详细日志 -----
         logger.info(f"📝 签名参数（排序后）: {sorted_params}")
         logger.info(f"📝 签名原串: {sign_str}")
         logger.info(f"📝 计算签名: {sign}")
-        # -------------------------
-
         return sign
 
     def verify_sign(self, data):
@@ -527,7 +512,7 @@ class OkayPay:
         params = {
             'unique_id': unique_id,
             'name': '积分充值',
-            'amount': str(amount),
+            'amount': f"{amount:.2f}",          # 格式化为两位小数
             'coin': 'USDT',
             'return_url': CALLBACK_URL
         }
@@ -536,21 +521,14 @@ class OkayPay:
         submit_params['id'] = str(self.appid)
         submit_params['sign'] = sign
 
-        # ----- 打印完整提交参数 -----
         logger.info(f"📤 完整提交参数: {submit_params}")
-        # --------------------------
-
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         try:
             api_url = self.api_url + 'payLink'
             logger.info(f"🌐 请求 URL: {api_url}")
             resp = requests.post(api_url, data=submit_params, headers=headers, timeout=15, verify=False)
-
-            # ----- 打印响应 -----
             logger.info(f"📨 响应状态码: {resp.status_code}")
             logger.info(f"📨 响应内容: {resp.text}")
-            # --------------------
-
             if resp.status_code == 200:
                 result = resp.json()
                 logger.info(f"✅ 解析结果: {result}")
@@ -759,7 +737,7 @@ def balance(update, context):
     )
 
 # ============================================================
-#  3. Telegram 命令处理（完整实现）
+#  3. Telegram 命令处理（完整）
 # ============================================================
 
 def start(update, context):
@@ -986,7 +964,6 @@ def main():
     dp.add_handler(CommandHandler("balance", balance))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # recharge 对话
     conv_recharge = ConversationHandler(
         entry_points=[CommandHandler('recharge', recharge_start)],
         states={
@@ -996,7 +973,6 @@ def main():
     )
     dp.add_handler(conv_recharge)
 
-    # sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -1011,7 +987,6 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
