@@ -17,19 +17,32 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
-BOT_TOKEN = os.environ.get('5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
-BASE_COOKIES = {"cna": os.environ.get('CNA') or "REPLACE_CNA_HERE", "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE", "SESSION": os.environ.get('SESSION') or "REPLACE_SESSION_HERE", "SERVERID": os.environ.get('SERVERID') or "REPLACE_SERVERID_HERE"}
+BOT_TOKEN = os.environ.get('5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM')
+if not BOT_TOKEN:
+    raise ValueError("请在环境变量中设置 BOT_TOKEN，或 GitHub Secrets 中添加")
+BASE_COOKIES = {
+    "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
+    "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
+    "SESSION": os.environ.get('SESSION') or "REPLACE_SESSION_HERE",
+    "SERVERID": os.environ.get('SERVERID') or "REPLACE_SERVERID_HERE",
+}
 ZWFW_TOKEN = os.environ.get('ZWFW_TOKEN') or "REPLACE_ZWFW_TOKEN_HERE"
-FIXED_NAME = "刘德华"; SAVE_FOLDER = "temp_files"; RETRY_TIMES = 5
+FIXED_NAME = "刘德华"
+SAVE_FOLDER = "temp_files"
+RETRY_TIMES = 5
 OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)
 OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'TCtvS9O6idNOw3XaDyoTEEVG8awJCkdb'
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
 CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://docs.okaypay.me/'
-PORT = 1010; POINTS_RATE = 1; CHECK_INTERVAL = 0.5; ORDER_TIMEOUT = 1800
-GX_QUERY_PRICE = 0.05; GX_PASSWORD = "268428."
-ADMIN_IDS = [6040143940]  # 您的管理员ID
+PORT = 8080
+POINTS_RATE = 1
+CHECK_INTERVAL = 0.5
+ORDER_TIMEOUT = 1800
+GX_QUERY_PRICE = 0.05
+GX_PASSWORD = "268428."
+ADMIN_IDS = [6040143940]
 
-# ===== 身份证生成函数（完整） =====
+# ===== 身份证生成函数（完整，压缩） =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 HEADERS2 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","sec-ch-ua-mobile":"?1","Accept":"*/*","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 def query_id_card_sync(id_card):
