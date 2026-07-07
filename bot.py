@@ -17,9 +17,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
-BOT_TOKEN = os.environ.get('5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM')
-if not BOT_TOKEN:
-    raise ValueError("请在环境变量中设置 BOT_TOKEN，或 GitHub Secrets 中添加")
+# 请将您的 Bot Token 填入下方引号内
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"   # ← 修改此处
+
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
     "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
@@ -42,7 +42,7 @@ GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
 ADMIN_IDS = [6040143940]
 
-# ===== 身份证生成函数（完整，压缩） =====
+# ===== 身份证生成函数 =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 HEADERS2 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","sec-ch-ua-mobile":"?1","Accept":"*/*","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 def query_id_card_sync(id_card):
@@ -164,7 +164,6 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS signin (user_id INTEGER PRIMARY KEY, last_sign_date TEXT)')
     conn.commit(); conn.close(); logger.info("数据库初始化完成")
 init_db()
-
 # ===== UserManager =====
 class UserManager:
     @staticmethod
@@ -246,7 +245,7 @@ class UserManager:
         except Exception as e: conn.rollback(); logger.error(f"赠送积分失败: {e}"); return False
         finally: conn.close()
 
-# ===== OkayPay 客户端 (HMAC-SHA256) =====
+# ===== OkayPay 客户端 =====
 class OkayPay:
     def __init__(self, appid, token, api_url): self.appid=appid; self.token=token; self.api_url=api_url
     def _build_base(self, params):
