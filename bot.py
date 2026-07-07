@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（HMAC-SHA256 新协议）
-修复：移除不支持的 pool_timeout 参数
+合并版机器人：身份证生成 + OkayPay 充值 + 广西道路运输照片查询（积分消耗）
 """
 
 import sys
-print("===== Bot 完整版（身份证生成 + 支付充值 | HMAC-SHA256）=====")
+print("===== Bot 完整版（身份证生成 + 支付充值 + GX查询）=====")
 
 import os
 import time
@@ -22,6 +21,9 @@ import threading
 import logging
 import re
 import random
+import base64
+import urllib.parse
+from typing import Optional
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -41,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger('MergedBot')
 
 # ============================================================
-#  配置（请将下方密钥替换为您刷新后的新密钥）
+#  配置
 # ============================================================
 BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
 
@@ -56,15 +58,19 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ----- OkayPay 配置（请修改为您的最新信息） -----
-OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)          # 您的 App ID
-OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'TCtvS9O6idNOw3XaDyoTEEVG8awJCkdb'  # ⚠️ 务必刷新后填入
+# ----- OkayPay 配置 -----
+OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)
+OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'TCtvS9O6idNOw3XaDyoTEEVG8awJCkdb'
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
 CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://docs.okaypay.me/'
 PORT = 1010
 POINTS_RATE = 1
 CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
+
+# ----- 广西查询配置 -----
+GX_QUERY_PRICE = 0.05
+GX_PASSWORD = "268428."
 
 # ============================================================
 #  1. 身份证生成相关函数（完整）
@@ -88,7 +94,6 @@ HEADERS1 = {
     "Accept-Encoding": "gzip, deflate, br, zstd",
     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
 }
-
 HEADERS2 = {
     "Host": "zwfw.dn.haikou.gov.cn",
     "Connection": "keep-alive",
@@ -204,16 +209,13 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
         raise ValueError("身份证号码格式不正确")
     birth_date = id_number[6:14]
     gender = '女' if int(id_number[-2]) % 2 == 0 else '男'
-
     issuing_authority_map = load_issuing_authority_map('fonts/签发机关.txt')
     issuing_authority = get_issuing_authority(id_number, issuing_authority_map)
-
     template = Image.open('fonts/empty.png').convert("RGBA")
     name_font = ImageFont.truetype('fonts/hei.ttf', 72)
     other_font = ImageFont.truetype('fonts/hei.ttf', 64)
     birth_font = ImageFont.truetype('fonts/fzhei.ttf', 60)
     id_font = ImageFont.truetype('fonts/ocrb10bt.ttf', 90)
-
     draw = ImageDraw.Draw(template)
     draw.text((630, 690), name, font=name_font, fill='black')
     draw.text((630, 840), gender, font=other_font, fill='black')
@@ -221,29 +223,23 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     draw.text((630, 975), birth_date[:4], font=birth_font, fill='black')
     draw.text((950, 975), birth_date[4:6], font=birth_font, fill='black')
     draw.text((1150, 975), birth_date[6:], font=birth_font, fill='black')
-
     y = 1115
     for line in format_address(address):
         draw.text((630, y), line, font=other_font, fill='black')
         y += 85
-
     draw.text((900, 1475), id_number, font=id_font, fill='black')
     draw.text((1050, 2750), issuing_authority, font=other_font, fill='black')
     draw.text((1050, 2895), expiration_date, font=other_font, fill='black')
-
     photo = Image.open(user_photo_path).convert("RGBA")
     photo = remove_white_background(photo, threshold=240)
     photo = photo.resize((500, 670))
     template.paste(photo, (1500, 670), mask=photo)
-
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
-
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
         tmp_img_path = tmp_img.name
         template.save(tmp_img_path, format='PNG')
-
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -252,7 +248,6 @@ def generate_id_card_sync(name, id_number, nation, address, expiration_date, use
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_img_path)
-
     return img_bytes, pdf_bytes
 
 def load_area_map():
@@ -286,39 +281,31 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     if len(id_card) != 18:
         raise ValueError("身份证号必须为18位")
     gender = "男" if int(id_card[16]) % 2 == 1 else "女"
-
     if not os.path.exists('plc/mb.jpg'):
         raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
     if not os.path.exists('plc/10.ttf'):
         raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
-
     template = Image.open('plc/mb.jpg').convert("RGBA")
     avatar = Image.open(avatar_path).convert("RGBA")
     avatar = remove_white_background(avatar, threshold=240)
     avatar = avatar.resize((416, 500))
     template.paste(avatar, (26, 333), mask=avatar)
-
     draw = ImageDraw.Draw(template)
     font = ImageFont.truetype('plc/10.ttf', 55)
-
     year = id_card[6:10]
     month = id_card[10:12]
     day = id_card[12:14]
     birth_str = year + "年" + month + "月" + day + "日"
-
     draw.text((598, 314), name, font=font, fill=(0, 0, 0))
     draw.text((598, 398), gender, font=font, fill=(0, 0, 0))
     draw.text((474, 641), id_card, font=font, fill=(0, 0, 0))
     draw.text((718, 482), birth_str, font=font, fill=(0, 0, 0))
-
     address_lines = [address[i:i+11] for i in range(0, len(address), 11)]
     for i, line in enumerate(address_lines):
         draw.text((473, 782 + i * 60), line, font=font, fill=(0, 0, 0))
-
     img_bytes = io.BytesIO()
     template.save(img_bytes, format='PNG')
     img_bytes.seek(0)
-
     pdf_bytes = io.BytesIO()
     c = canvas.Canvas(pdf_bytes, pagesize=A4)
     w, h = template.size
@@ -330,7 +317,6 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     c.save()
     pdf_bytes.seek(0)
     os.remove(tmp_path)
-
     return img_bytes, pdf_bytes
 
 # ============================================================
@@ -342,17 +328,17 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT,
-                  points INTEGER DEFAULT 0, total_recharge REAL DEFAULT 0,
+                  points REAL DEFAULT 0, total_recharge REAL DEFAULT 0,
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS transactions
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, order_id TEXT UNIQUE, unique_id TEXT UNIQUE,
-                  amount REAL, points_earned INTEGER, status TEXT DEFAULT 'pending',
+                  amount REAL, points_earned REAL, status TEXT DEFAULT 'pending',
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   processed_at TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS point_history
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER,
-                  change_type TEXT, change_amount INTEGER, current_balance INTEGER,
+                  change_type TEXT, change_amount REAL, current_balance REAL,
                   description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
@@ -417,7 +403,7 @@ class UserManager:
 
     @staticmethod
     def add_points(user_id, amount_usdt, order_id):
-        points = int(amount_usdt * POINTS_RATE)
+        points = amount_usdt * POINTS_RATE
         conn = sqlite3.connect('user_points.db')
         c = conn.cursor()
         try:
@@ -435,7 +421,7 @@ class UserManager:
                 conn.close()
                 return None
 
-            current_points = current[0]
+            current_points = current[0] if current[0] is not None else 0.0
             c.execute('BEGIN')
             c.execute('UPDATE users SET points = points + ?, total_recharge = total_recharge + ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
                       (points, amount_usdt, user_id))
@@ -458,6 +444,34 @@ class UserManager:
             conn.close()
 
     @staticmethod
+    def deduct_points(user_id, amount):
+        if amount <= 0:
+            return False
+        conn = sqlite3.connect('user_points.db')
+        c = conn.cursor()
+        try:
+            c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
+            row = c.fetchone()
+            if not row:
+                return False
+            current_points = row[0] if row[0] is not None else 0.0
+            if current_points < amount:
+                return False
+            c.execute('BEGIN')
+            c.execute('UPDATE users SET points = points - ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
+                      (amount, user_id))
+            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
+                      (user_id, 'consume', -amount, current_points - amount, f'广西查询消耗 {amount:.2f} 积分'))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"扣积分失败: {e}")
+            return False
+        finally:
+            conn.close()
+
+    @staticmethod
     def get_stats(user_id):
         conn = sqlite3.connect('user_points.db')
         c = conn.cursor()
@@ -470,12 +484,12 @@ class UserManager:
         row = c.fetchone()
         conn.close()
         if row:
-            return {'points': row[0] or 0, 'total_recharge': row[1] or 0,
-                    'trans_count': row[2] or 0, 'total_amount': row[3] or 0}
-        return {'points':0, 'total_recharge':0, 'trans_count':0, 'total_amount':0}
+            return {'points': row[0] or 0.0, 'total_recharge': row[1] or 0.0,
+                    'trans_count': row[2] or 0, 'total_amount': row[3] or 0.0}
+        return {'points':0.0, 'total_recharge':0.0, 'trans_count':0, 'total_amount':0.0}
 
 # ============================================================
-#  OkayPay 客户端（HMAC-SHA256 新协议）
+#  OkayPay 客户端（HMAC-SHA256）
 # ============================================================
 
 class OkayPay:
@@ -485,12 +499,8 @@ class OkayPay:
         self.api_url = api_url
 
     def _build_base(self, params):
-        """构造签名原文 base（符合文档 2.1 节）"""
-        # 1. 去掉 sign 字段
         params = {k: v for k, v in params.items() if k != 'sign'}
-        # 2. 去掉 null 和空字符串
         params = {k: v for k, v in params.items() if v is not None and v != ''}
-        # 3 & 4 & 5: 展开嵌套对象，布尔值转字符串
         def flatten(obj, prefix=''):
             items = {}
             if isinstance(obj, dict):
@@ -503,7 +513,6 @@ class OkayPay:
             else:
                 items[prefix] = obj
             return items
-
         flat_params = {}
         for k, v in params.items():
             if isinstance(v, dict):
@@ -512,16 +521,12 @@ class OkayPay:
                 flat_params[k] = 'true' if v else 'false'
             else:
                 flat_params[k] = str(v)
-
-        # 6. 按键名 ASCII 升序排序
         sorted_params = dict(sorted(flat_params.items()))
-        # 7. 拼接 key=value&...
         base = '&'.join([f"{k}={v}" for k, v in sorted_params.items()])
         logger.info(f"📝 签名原文: {base}")
         return base
 
     def _sign(self, params):
-        """计算 HMAC-SHA256 签名，返回 64 位大写十六进制"""
         base = self._build_base(params)
         sign = hmac.new(
             self.token.encode('utf-8'),
@@ -532,25 +537,20 @@ class OkayPay:
         return sign
 
     def _signed_params(self, params):
-        """自动添加 id, timestamp, nonce, sign"""
         nonce = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=16))
         timestamp = int(time.time())
-
         full_params = {
             'id': str(self.appid),
             'timestamp': timestamp,
             'nonce': nonce,
             **params
         }
-
         sign = self._sign(full_params)
         full_params['sign'] = sign
-
         logger.info(f"📤 完整提交参数: {full_params}")
         return full_params
 
     def verify(self, data):
-        """验证回调/响应签名"""
         if 'sign' not in data:
             logger.error("响应数据缺少 sign 字段")
             return False
@@ -561,7 +561,6 @@ class OkayPay:
         return is_valid
 
     def pay_link(self, amount, unique_id):
-        """6.1 创建支付链接"""
         logger.info(f"🚀 创建支付链接 - 金额: {amount}, 订单号: {unique_id}")
         params = {
             'amount': f"{amount:.2f}",
@@ -572,7 +571,6 @@ class OkayPay:
             'return_url': CALLBACK_URL
         }
         signed = self._signed_params(params)
-
         try:
             api_url = self.api_url + 'payLink'
             logger.info(f"🌐 请求 URL: {api_url}")
@@ -585,7 +583,6 @@ class OkayPay:
             )
             logger.info(f"📨 响应状态码: {resp.status_code}")
             logger.info(f"📨 响应内容: {resp.text}")
-
             if resp.status_code == 200:
                 result = resp.json()
                 if result.get('status') == 'success':
@@ -605,11 +602,9 @@ class OkayPay:
             return {'status': 'error', 'msg': str(e)}
 
     def check_deposit(self, unique_id):
-        """6.2 查询充值订单"""
         logger.info(f"🔍 检查充值状态 - unique_id: {unique_id}")
         params = {'unique_id': unique_id}
         signed = self._signed_params(params)
-
         try:
             api_url = self.api_url + 'checkDeposit'
             resp = requests.post(
@@ -664,7 +659,7 @@ def check_orders():
                                 stats = UserManager.get_stats(user_id)
                                 try:
                                     bot.send_message(user_id,
-                                        f"✅ 支付成功！\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added}\n当前积分: {stats['points']}")
+                                        f"✅ 支付成功！\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added:.2f}\n当前积分: {stats['points']:.2f}")
                                 except Exception as e:
                                     logger.error(f"发送消息失败: {e}")
                             orders[unique_id]['status'] = 'completed'
@@ -695,47 +690,40 @@ def callback():
         else:
             data = request.form.to_dict()
         logger.info(f"收到回调: {data}")
-
         if not client.verify(data):
             logger.error("签名验证失败")
             return jsonify({'status': 'success'}), 200
-
         if data.get('status') == 'success':
             order_data = data.get('data', {})
             order_type = order_data.get('type')
             order_id = order_data.get('order_id')
             amount = float(order_data.get('amount', 0))
             unique_id = order_data.get('unique_id')
-
             if order_type == 'deposit' and order_data.get('status') == 1:
                 conn = sqlite3.connect('user_points.db')
                 c = conn.cursor()
                 c.execute('SELECT user_id, status FROM transactions WHERE order_id = ?', (order_id,))
                 row = c.fetchone()
                 conn.close()
-
                 if not row:
                     logger.warning(f"未找到订单 {order_id}")
                     return jsonify({'status': 'success'}), 200
-
                 user_id, current_status = row
                 if current_status == 'completed':
                     logger.info(f"订单 {order_id} 已处理")
                     return jsonify({'status': 'success'}), 200
-
                 points_added = UserManager.add_points(user_id, amount, order_id)
                 if points_added is not None:
                     stats = UserManager.get_stats(user_id)
                     try:
                         bot.send_message(user_id,
-                            f"✅ 支付成功！（回调）\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added}\n当前积分: {stats['points']}")
+                            f"✅ 支付成功！（回调）\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added:.2f}\n当前积分: {stats['points']:.2f}")
                     except Exception as e:
                         logger.error(f"发送消息失败: {e}")
                     if unique_id and unique_id in orders:
                         orders[unique_id]['status'] = 'completed'
                 else:
                     logger.error(f"积分添加失败，订单 {order_id}")
-
         return jsonify({'status': 'success'}), 200
     except Exception as e:
         logger.exception("回调处理异常")
@@ -746,7 +734,183 @@ def run_flask():
     flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
 # ============================================================
-#  支付命令
+#  广西道路运输查询模块（新增）
+# ============================================================
+
+SM4_KEY = "CatsPK0WWWRRhjkw"
+SboxTable = [
+    0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
+    0x2b, 0x67, 0x9a, 0x76, 0x2a, 0xbe, 0x04, 0xc3, 0xaa, 0x44, 0x13, 0x26, 0x49, 0x86, 0x06, 0x99,
+    0x9c, 0x42, 0x50, 0xf4, 0x91, 0xef, 0x98, 0x7a, 0x33, 0x54, 0x0b, 0x43, 0xed, 0xcf, 0xac, 0x62,
+    0xe4, 0xb3, 0x1c, 0xa9, 0xc9, 0x08, 0xe8, 0x95, 0x80, 0xdf, 0x94, 0xfa, 0x75, 0x8f, 0x3f, 0xa6,
+    0x47, 0x07, 0xa7, 0xfc, 0xf3, 0x73, 0x17, 0xba, 0x83, 0x59, 0x3c, 0x19, 0xe6, 0x85, 0x4f, 0xa8,
+    0x68, 0x6b, 0x81, 0xb2, 0x71, 0x64, 0xda, 0x8b, 0xf8, 0xeb, 0x0f, 0x4b, 0x70, 0x56, 0x9d, 0x35,
+    0x1e, 0x24, 0x0e, 0x5e, 0x63, 0x58, 0xd1, 0xa2, 0x25, 0x22, 0x7c, 0x3b, 0x01, 0x21, 0x78, 0x87,
+    0xd4, 0x00, 0x46, 0x57, 0x9f, 0xd3, 0x27, 0x52, 0x4c, 0x36, 0x02, 0xe7, 0xa0, 0xc4, 0xc8, 0x9e,
+    0xea, 0xbf, 0x8a, 0xd2, 0x40, 0xc7, 0x38, 0xb5, 0xa3, 0xf7, 0xf2, 0xce, 0xf9, 0x61, 0x15, 0xa1,
+    0xe0, 0xae, 0x5d, 0xa4, 0x9b, 0x34, 0x1a, 0x55, 0xad, 0x93, 0x32, 0x30, 0xf5, 0x8c, 0xb1, 0xe3,
+    0x1d, 0xf6, 0xe2, 0x2e, 0x82, 0x66, 0xca, 0x60, 0xc0, 0x29, 0x23, 0xab, 0x0d, 0x53, 0x4e, 0x6f,
+    0xd5, 0xdb, 0x37, 0x45, 0xde, 0xfd, 0x8e, 0x2f, 0x03, 0xff, 0x6a, 0x72, 0x6d, 0x6c, 0x5b, 0x51,
+    0x8d, 0x1b, 0xaf, 0x92, 0xbb, 0xdd, 0xbc, 0x7f, 0x11, 0xd9, 0x5c, 0x41, 0x1f, 0x10, 0x5a, 0xd8,
+    0x0a, 0xc1, 0x31, 0x88, 0xa5, 0xcd, 0x7b, 0xbd, 0x2d, 0x74, 0xd0, 0x12, 0xb8, 0xe5, 0xb4, 0xb0,
+    0x89, 0x69, 0x97, 0x4a, 0x0c, 0x96, 0x77, 0x7e, 0x65, 0xb9, 0xf1, 0x09, 0xc5, 0x6e, 0xc6, 0x84,
+    0x18, 0xf0, 0x7d, 0xec, 0x3a, 0xdc, 0x4d, 0x20, 0x79, 0xee, 0x5f, 0x3e, 0xd7, 0xcb, 0x39, 0x48
+]
+FK = [0xa3b1bac6, 0x56aa3350, 0x677d9197, 0xb27022dc]
+CK = [
+    0x00070e15, 0x1c232a31, 0x383f464d, 0x545b6269,
+    0x70777e85, 0x8c939aa1, 0xa8afb6bd, 0xc4cbd2d9,
+    0xe0e7eef5, 0xfc030a11, 0x181f262d, 0x343b4249,
+    0x50575e65, 0x6c737a81, 0x888f969d, 0xa4abb2b9,
+    0xc0c7ced5, 0xdce3eaf1, 0xf8ff060d, 0x141b2229,
+    0x30373e45, 0x4c535a61, 0x686f767d, 0x848b9299,
+    0xa0a7aeb5, 0xbcc3cad1, 0xd8dfe6ed, 0xf4fb0209,
+    0x10171e25, 0x2c333a41, 0x484f565d, 0x646b7279
+]
+
+def rotl(x, n):
+    left = (x << n) & 0xffffffff
+    signed_x = x - 0x100000000 if (x & 0x80000000) else x
+    right = (signed_x >> (32 - n)) & 0xffffffff
+    return left | right
+
+def sm4_sbox(a):
+    return (SboxTable[(a >> 24) & 0xFF] << 24) | \
+           (SboxTable[(a >> 16) & 0xFF] << 16) | \
+           (SboxTable[(a >> 8) & 0xFF] << 8) | \
+           SboxTable[a & 0xFF]
+
+def sm4_lt(ka):
+    bb = sm4_sbox(ka)
+    return bb ^ rotl(bb, 2) ^ rotl(bb, 10) ^ rotl(bb, 18) ^ rotl(bb, 24)
+
+def sm4_calci_rk(ka):
+    bb = sm4_sbox(ka)
+    return bb ^ rotl(bb, 13) ^ rotl(bb, 23)
+
+def sm4_f(x0, x1, x2, x3, rk):
+    return x0 ^ sm4_lt(x1 ^ x2 ^ x3 ^ rk)
+
+def pkcs7_pad(data: bytes, block_size=16) -> bytes:
+    pad_len = block_size - (len(data) % block_size)
+    return data + bytes([pad_len]) * pad_len
+
+def sm4_encrypt_ecb(plain_text: str) -> str:
+    data = plain_text.encode('utf-8')
+    padded = pkcs7_pad(data, 16)
+    key_bytes = SM4_KEY.encode('utf-8')
+    mk = [0] * 4
+    for i in range(4):
+        mk[i] = (key_bytes[i*4] << 24) | (key_bytes[i*4+1] << 16) | (key_bytes[i*4+2] << 8) | key_bytes[i*4+3]
+    k = [0] * 36
+    for i in range(4):
+        k[i] = mk[i] ^ FK[i]
+    sk = [0] * 32
+    for i in range(32):
+        k[i+4] = k[i] ^ sm4_calci_rk(k[i+1] ^ k[i+2] ^ k[i+3] ^ CK[i])
+        sk[i] = k[i+4]
+    result = bytearray()
+    for offset in range(0, len(padded), 16):
+        block = padded[offset:offset+16]
+        x = [0] * 36
+        for i in range(4):
+            x[i] = (block[i*4] << 24) | (block[i*4+1] << 16) | (block[i*4+2] << 8) | block[i*4+3]
+        for i in range(32):
+            x[i+4] = sm4_f(x[i], x[i+1], x[i+2], x[i+3], sk[i])
+        out = bytearray(16)
+        for i in range(4):
+            val = x[35-i]
+            out[i*4] = (val >> 24) & 0xFF
+            out[i*4+1] = (val >> 16) & 0xFF
+            out[i*4+2] = (val >> 8) & 0xFF
+            out[i*4+3] = val & 0xFF
+        result.extend(out)
+    return base64.b64encode(result).decode('utf-8')
+
+def gx_login(session, id_card):
+    encrypted_login_raw = sm4_encrypt_ecb(id_card)
+    encrypted_pwd_raw = sm4_encrypt_ecb(GX_PASSWORD)
+    encrypted_login = urllib.parse.quote(encrypted_login_raw)
+    encrypted_pwd = urllib.parse.quote(encrypted_pwd_raw)
+    data = f"loginName={encrypted_login}&password={encrypted_pwd}&wechatUid="
+    login_headers = {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36",
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Connection": "keep-alive",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "Referer": "http://www.gxdlys.com/Wechat/Home/Login",
+        "Host": "www.gxdlys.com"
+    }
+    try:
+        response = session.post(
+            "http://www.gxdlys.com/Wechat/Home/PostLogin",
+            headers=login_headers,
+            data=data,
+            timeout=30
+        )
+        if response.status_code == 200:
+            res = response.json()
+            if res.get("statusCode") == 200:
+                logger.info(f"GX登录成功: {id_card}")
+                return True
+            else:
+                logger.warning(f"GX登录失败: {res.get('info')}")
+                return False
+    except Exception as e:
+        logger.error(f"GX登录异常: {e}")
+        return False
+
+def gx_query_photo(session, name, id_card):
+    try:
+        encoded_name = urllib.parse.quote(name)
+        url = f"http://www.gxdlys.com/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
+        query_headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Encoding": "gzip, deflate",
+            "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Connection": "keep-alive",
+            "Referer": "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1",
+            "Host": "www.gxdlys.com"
+        }
+        response = session.get(url, headers=query_headers, timeout=30)
+        if response.status_code != 200:
+            return False, f"HTTP错误: {response.status_code}"
+        result = response.json()
+        if result.get("statusCode") != 200:
+            return False, result.get("info", "查询失败")
+        data = result.get("data", {})
+        file_id = data.get("item1")
+        if not file_id:
+            return False, "未获取到照片文件ID"
+        download_url = f"http://www.gxdlys.com/System/FileService/ShowFile?fileId={file_id}"
+        photo_resp = session.get(download_url, timeout=30)
+        if photo_resp.status_code != 200 or 'image' not in photo_resp.headers.get('Content-Type', ''):
+            return False, "照片下载失败"
+        return True, photo_resp.content
+    except Exception as e:
+        logger.error(f"GX查询异常: {e}")
+        return False, str(e)
+
+def gx_query_main(name, id_card):
+    session = requests.Session()
+    try:
+        if not gx_login(session, id_card):
+            return False, "登录失败，请确认身份证已注册"
+        success, result = gx_query_photo(session, name, id_card)
+        if success:
+            return True, result
+        else:
+            return False, result
+    finally:
+        session.close()
+
+# ============================================================
+#  支付命令（充值、余额）
 # ============================================================
 
 RECHARGE_AMOUNT = 100
@@ -758,9 +922,9 @@ def recharge_start(update, context):
     stats = UserManager.get_stats(user_id)
     update.message.reply_text(
         f"💰 积分充值\n"
-        f"当前积分: {stats['points']}\n"
-        f"累计充值: {stats['total_recharge']} USDT\n\n"
-        f"请输入要充值的 USDT 金额（例如 1）："
+        f"当前积分: {stats['points']:.2f}\n"
+        f"累计充值: {stats['total_recharge']:.2f} USDT\n\n"
+        f"请输入要充值的 USDT 金额（例如 10）："
     )
     return RECHARGE_AMOUNT
 
@@ -774,7 +938,7 @@ def recharge_amount(update, context):
         update.message.reply_text("❌ 请输入有效的正数金额，例如 10")
         return RECHARGE_AMOUNT
 
-    points = int(amt * POINTS_RATE)
+    points = amt * POINTS_RATE
     unique_id = f"ORDER_{int(time.time())}_{user_id}_{random.randint(1000,9999)}"
     resp = client.pay_link(amt, unique_id)
     if not resp or resp.get('status') != 'success':
@@ -800,24 +964,24 @@ def recharge_amount(update, context):
     update.message.reply_text(
         f"✅ 订单已创建\n"
         f"订单号: {order_id}\n"
-        f"金额: {amt} USDT → {points} 积分\n"
+        f"金额: {amt:.2f} USDT → {points:.2f} 积分\n"
         f"有效期: 30 分钟\n\n"
         f"点击下方按钮完成支付，系统将自动确认。",
         reply_markup=reply_markup
     )
-    logger.info(f"用户 {user_id} 创建订单 {order_id}，金额 {amt} USDT")
+    logger.info(f"用户 {user_id} 创建订单 {order_id}，金额 {amt:.2f} USDT")
     return ConversationHandler.END
 
 def balance(update, context):
     user_id = update.effective_user.id
     stats = UserManager.get_stats(user_id)
     update.message.reply_text(
-        f"📊 您的积分: {stats['points']}\n"
-        f"累计充值: {stats['total_recharge']} USDT"
+        f"📊 您的积分: {stats['points']:.2f}\n"
+        f"累计充值: {stats['total_recharge']:.2f} USDT"
     )
 
 # ============================================================
-#  Telegram 命令处理
+#  Telegram 命令处理（完整）
 # ============================================================
 
 def start(update, context):
@@ -826,8 +990,9 @@ def start(update, context):
         "/hainansf +空格+身份证 → 查询海南大头\n"
         "/sfz → 生成标准身份证（双面）\n"
         "/plc → 生成PLC模板身份证\n"
-        "/recharge → okpay自动充值积分\n"
+        "/recharge → 充值积分\n"
         "/balance → 查询积分余额\n"
+        "/gxquery 姓名 身份证 → 查询广西道路运输照片（消耗0.05积分）\n"
         "/cancel → 取消当前操作"
     )
 
@@ -1030,12 +1195,64 @@ def plc_photo(update, context):
     return ConversationHandler.END
 
 # ============================================================
+#  新增：/gxquery 命令
+# ============================================================
+
+def gxquery(update, context):
+    user_id = update.effective_user.id
+    args = context.args
+    if len(args) < 2:
+        update.message.reply_text("❌ 格式错误\n正确格式：/gxquery <姓名> <身份证号>")
+        return
+
+    name = args[0].strip()
+    id_card = args[1].strip()
+    if len(id_card) != 18:
+        update.message.reply_text("❌ 身份证号必须为18位")
+        return
+
+    stats = UserManager.get_stats(user_id)
+    if stats['points'] < GX_QUERY_PRICE:
+        update.message.reply_text(
+            f"❌ 积分不足！本次查询需要 {GX_QUERY_PRICE:.2f} 积分，当前积分 {stats['points']:.2f}\n请先 /recharge 充值。"
+        )
+        return
+
+    if not UserManager.deduct_points(user_id, GX_QUERY_PRICE):
+        update.message.reply_text("❌ 积分扣除失败，请稍后重试")
+        return
+
+    msg = update.message.reply_text(f"⏳ 正在查询 {name} 的照片，请稍候...")
+
+    def do_query():
+        try:
+            success, result = gx_query_main(name, id_card)
+            if success:
+                try:
+                    context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=io.BytesIO(result),
+                        caption=f"✅ {name} 的身份证照片（广西道路运输）\n消耗积分: {GX_QUERY_PRICE:.2f}"
+                    )
+                except Exception as e:
+                    context.bot.send_message(user_id, f"❌ 发送照片失败: {e}")
+            else:
+                UserManager.add_points(user_id, GX_QUERY_PRICE, None)
+                context.bot.send_message(user_id, f"❌ 查询失败: {result}\n已退还 {GX_QUERY_PRICE:.2f} 积分")
+            context.bot.delete_message(chat_id=user_id, message_id=msg.message_id)
+        except Exception as e:
+            logger.error(f"查询线程异常: {e}")
+            context.bot.send_message(user_id, f"❌ 查询异常: {e}")
+            UserManager.add_points(user_id, GX_QUERY_PRICE, None)
+
+    threading.Thread(target=do_query, daemon=True).start()
+
+# ============================================================
 #  主程序
 # ============================================================
 
 def main():
     global bot
-    # 增加超时时间，解决 GitHub Actions 环境连接超时问题（仅支持 read_timeout 和 connect_timeout）
     updater = Updater(BOT_TOKEN, request_kwargs={
         'read_timeout': 60,
         'connect_timeout': 30
@@ -1047,6 +1264,7 @@ def main():
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("balance", balance))
     dp.add_handler(CommandHandler("cancel", cancel))
+    dp.add_handler(CommandHandler("gxquery", gxquery))
 
     conv_recharge = ConversationHandler(
         entry_points=[CommandHandler('recharge', recharge_start)],
@@ -1087,7 +1305,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（身份证生成 + 支付充值 | HMAC-SHA256）")
+    print("🤖 机器人已启动（身份证生成 + 支付充值 + GX查询）")
     logger.info("所有功能已加载，开始轮询...")
     updater.start_polling()
     updater.idle()
