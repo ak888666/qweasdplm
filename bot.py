@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 合并版机器人：身份证生成 + OkayPay 自助充值（HMAC-SHA256 新协议）
-修复：增加 Telegram API 超时时间，解决 Actions 环境连接超时问题
+修复：移除不支持的 pool_timeout 参数
 """
 
 import sys
@@ -771,7 +771,7 @@ def recharge_amount(update, context):
         if amt <= 0:
             raise ValueError
     except:
-        update.message.reply_text("❌ 请输入有效的正数金额，例如 1")
+        update.message.reply_text("❌ 请输入有效的正数金额，例如 10")
         return RECHARGE_AMOUNT
 
     points = int(amt * POINTS_RATE)
@@ -826,7 +826,7 @@ def start(update, context):
         "/hainansf +空格+身份证 → 查询海南大头\n"
         "/sfz → 生成标准身份证（双面）\n"
         "/plc → 生成PLC模板身份证\n"
-        "/recharge → okpay自动充值积分\n"
+        "/recharge → 充值积分\n"
         "/balance → 查询积分余额\n"
         "/cancel → 取消当前操作"
     )
@@ -1035,11 +1035,10 @@ def plc_photo(update, context):
 
 def main():
     global bot
-    # 增加超时时间，解决 GitHub Actions 环境连接超时问题
+    # 增加超时时间，解决 GitHub Actions 环境连接超时问题（仅支持 read_timeout 和 connect_timeout）
     updater = Updater(BOT_TOKEN, request_kwargs={
         'read_timeout': 60,
-        'connect_timeout': 30,
-        'pool_timeout': 30
+        'connect_timeout': 30
     })
     bot = updater.bot
     dp = updater.dispatcher
