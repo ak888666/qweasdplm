@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（完整实现）
-修复：环境变量为空时使用默认值，所有函数完整实现
+合并版机器人：身份证生成 + OkayPay 自助充值（带调试日志）
 """
 
 import sys
@@ -58,8 +57,11 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
+# ----- OkayPay 配置（请填写您刷新后的新密钥） -----
 OKPAY_ID = int(os.environ.get('OKPAY_ID') or 323)
+# ↓↓↓ 请将下方密钥替换为您在后台刷新后的新密钥 ↓↓↓
 OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'fa7c788e746a54a0723cb2372f9160d593321aca910afbdb2ed0923564e5def1'
+# ↑↑↑ 注意：如果您通过 GitHub Secrets 传递 OKPAY_TOKEN，则无需修改此行 ↑↑↑
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
 CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://your-domain.com/OkPay.php'
 PORT = 1010
@@ -335,7 +337,7 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ============================================================
-#  2. 支付模块（完整实现）
+#  2. 支付模块（完整实现，带详细调试日志）
 # ============================================================
 
 def init_db():
@@ -475,6 +477,7 @@ class UserManager:
                     'trans_count': row[2] or 0, 'total_amount': row[3] or 0}
         return {'points':0, 'total_recharge':0, 'trans_count':0, 'total_amount':0}
 
+# ---------- OkayPay API 客户端（带调试日志） ----------
 class OkayPay:
     def __init__(self, appid, token, api_url):
         self.appid = appid
@@ -482,12 +485,25 @@ class OkayPay:
         self.api_url = api_url
 
     def _sign(self, params):
+        # 过滤空值
         params = {k: v for k, v in params.items() if v is not None and v != ''}
+        # 添加 id
         params['id'] = str(self.appid)
+        # 按字典序排序
         sorted_params = dict(sorted(params.items()))
+        # 拼接查询字符串
         query_string = urllib.parse.urlencode(sorted_params)
+        # 解码（模拟 PHP 的 urldecode）
         sign_str = urllib.parse.unquote(query_string) + '&token=' + self.token
+        # 计算 MD5 大写
         sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
+
+        # ----- 打印详细日志 -----
+        logger.info(f"📝 签名参数（排序后）: {sorted_params}")
+        logger.info(f"📝 签名原串: {sign_str}")
+        logger.info(f"📝 计算签名: {sign}")
+        # -------------------------
+
         return sign
 
     def verify_sign(self, data):
@@ -507,7 +523,7 @@ class OkayPay:
         return calc_sign == in_sign
 
     def pay_link(self, amount, unique_id):
-        logger.info(f"创建支付链接 - 金额: {amount}, 订单号: {unique_id}")
+        logger.info(f"🚀 创建支付链接 - 金额: {amount}, 订单号: {unique_id}")
         params = {
             'unique_id': unique_id,
             'name': '积分充值',
@@ -520,24 +536,35 @@ class OkayPay:
         submit_params['id'] = str(self.appid)
         submit_params['sign'] = sign
 
+        # ----- 打印完整提交参数 -----
+        logger.info(f"📤 完整提交参数: {submit_params}")
+        # --------------------------
+
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         try:
             api_url = self.api_url + 'payLink'
+            logger.info(f"🌐 请求 URL: {api_url}")
             resp = requests.post(api_url, data=submit_params, headers=headers, timeout=15, verify=False)
+
+            # ----- 打印响应 -----
+            logger.info(f"📨 响应状态码: {resp.status_code}")
+            logger.info(f"📨 响应内容: {resp.text}")
+            # --------------------
+
             if resp.status_code == 200:
                 result = resp.json()
-                logger.info(f"支付链接响应: {result}")
+                logger.info(f"✅ 解析结果: {result}")
                 return result
             else:
                 error_result = {'error': f'HTTP {resp.status_code}', 'body': resp.text}
-                logger.error(f"API请求失败: {error_result}")
+                logger.error(f"❌ API请求失败: {error_result}")
                 return error_result
         except Exception as e:
-            logger.error(f"请求异常: {e}", exc_info=True)
+            logger.error(f"❌ 请求异常: {e}", exc_info=True)
             return {'error': str(e)}
 
     def check_deposit(self, unique_id):
-        logger.info(f"检查充值状态 - unique_id: {unique_id}")
+        logger.info(f"🔍 检查充值状态 - unique_id: {unique_id}")
         params = {'unique_id': unique_id}
         sign = self._sign(params)
         submit_params = params.copy()
@@ -548,16 +575,17 @@ class OkayPay:
         try:
             api_url = self.api_url + 'checkDeposit'
             resp = requests.post(api_url, data=submit_params, headers=headers, timeout=15, verify=False)
+            logger.info(f"📨 检查响应: {resp.text}")
             if resp.status_code == 200:
                 result = resp.json()
-                logger.info(f"检查响应: {result}")
+                logger.info(f"✅ 检查结果: {result}")
                 return result
             else:
                 error_result = {'error': f'HTTP {resp.status_code}', 'body': resp.text}
-                logger.error(f"API请求失败: {error_result}")
+                logger.error(f"❌ 检查请求失败: {error_result}")
                 return error_result
         except Exception as e:
-            logger.error(f"请求异常: {e}", exc_info=True)
+            logger.error(f"❌ 检查请求异常: {e}", exc_info=True)
             return {'error': str(e)}
 
 client = OkayPay(OKPAY_ID, OKPAY_TOKEN, OKPAY_API_URL)
