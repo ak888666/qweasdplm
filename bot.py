@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 （完整实现）
+合并版机器人：身份证生成 + OkayPay 自助充值（完整实现）
+修复：环境变量为空时使用默认值，所有函数完整实现
 """
 
 import sys
@@ -42,35 +43,32 @@ logging.basicConfig(
 logger = logging.getLogger('MergedBot')
 
 # ============================================================
-#   ⚠️ 必填项：请将下方 Token / Cookie / 支付密钥替换为真实数据
+#  配置（优先环境变量，若为空则使用默认值）
 # ============================================================
-# 从环境变量读取，若无则使用下方的默认值（您已实际填入）
-BOT_TOKEN = os.environ.get('BOT_TOKEN', "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw")
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
 
-# ----- 海南查询接口 Cookie -----
 BASE_COOKIES = {
-    "cna": os.environ.get('CNA', "REPLACE_CNA_HERE"),
-    "JSESSIONID": os.environ.get('JSESSIONID', "REPLACE_JSESSIONID_HERE"),
-    "SESSION": os.environ.get('SESSION', "REPLACE_SESSION_HERE"),
-    "SERVERID": os.environ.get('SERVERID', "REPLACE_SERVERID_HERE"),
+    "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
+    "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
+    "SESSION": os.environ.get('SESSION') or "REPLACE_SESSION_HERE",
+    "SERVERID": os.environ.get('SERVERID') or "REPLACE_SERVERID_HERE",
 }
-ZWFW_TOKEN = os.environ.get('ZWFW_TOKEN', "REPLACE_ZWFW_TOKEN_HERE")
+ZWFW_TOKEN = os.environ.get('ZWFW_TOKEN') or "REPLACE_ZWFW_TOKEN_HERE"
 FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ----- OkayPay 支付配置（已填入您的真实商户信息） -----
-OKPAY_ID = int(os.environ.get('OKPAY_ID', 323))
-OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN', 'dcf3c247fd03a45f58af4a42af66885dd7bb1c3c1150cd3b72b0318226043e42')
+OKPAY_ID = int(os.environ.get('OKPAY_ID') or 323)
+OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'fa7c788e746a54a0723cb2372f9160d593321aca910afbdb2ed0923564e5def1'
 OKPAY_API_URL = 'https://api.okaypay.me/shop/'
-CALLBACK_URL = os.environ.get('CALLBACK_URL', 'https://your-domain.com/OkPay.php')  # 回调地址（可不设置）
+CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://your-domain.com/OkPay.php'
 PORT = 1010
 POINTS_RATE = 1
 CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 
 # ============================================================
-#  1. 身份证生成相关函数（原有，完整保留）
+#  1. 身份证生成相关函数（完整实现）
 # ============================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -337,10 +335,9 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ============================================================
-#  2. 支付模块（新增）
+#  2. 支付模块（完整实现）
 # ============================================================
 
-# ---------- 数据库初始化 ----------
 def init_db():
     conn = sqlite3.connect('user_points.db')
     c = conn.cursor()
@@ -364,7 +361,6 @@ def init_db():
 
 init_db()
 
-# ---------- 用户积分管理 ----------
 class UserManager:
     @staticmethod
     def get_user(user_id):
@@ -479,7 +475,6 @@ class UserManager:
                     'trans_count': row[2] or 0, 'total_amount': row[3] or 0}
         return {'points':0, 'total_recharge':0, 'trans_count':0, 'total_amount':0}
 
-# ---------- OkayPay API 客户端 ----------
 class OkayPay:
     def __init__(self, appid, token, api_url):
         self.appid = appid
@@ -496,7 +491,6 @@ class OkayPay:
         return sign
 
     def verify_sign(self, data):
-        """验证回调签名，与 PHP 的 checkSign 逻辑一致"""
         if 'sign' not in data:
             logger.error("回调数据缺少 sign 字段")
             return False
@@ -567,11 +561,8 @@ class OkayPay:
             return {'error': str(e)}
 
 client = OkayPay(OKPAY_ID, OKPAY_TOKEN, OKPAY_API_URL)
+orders = {}
 
-# ---------- 订单内存存储 ----------
-orders = {}  # unique_id -> {user_id, amount, order_id, status, timestamp}
-
-# ---------- 轮询检查线程 ----------
 def check_orders():
     while True:
         try:
@@ -611,7 +602,6 @@ def check_orders():
             logger.error(f"订单检查异常: {e}", exc_info=True)
         time.sleep(CHECK_INTERVAL)
 
-# ---------- Flask 回调服务 ----------
 flask_app = Flask(__name__)
 
 @flask_app.route('/OkPay.php', methods=['POST'])
@@ -672,8 +662,8 @@ def run_flask():
     logger.info(f"启动 Flask 回调服务，端口 {PORT}")
     flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
-# ---------- 支付命令（/recharge） ----------
-RECHARGE_AMOUNT = 100  # 状态：等待输入金额
+# ---------- 支付命令 ----------
+RECHARGE_AMOUNT = 100
 
 def recharge_start(update, context):
     user_id = update.effective_user.id
@@ -732,7 +722,6 @@ def recharge_amount(update, context):
     logger.info(f"用户 {user_id} 创建订单 {order_id}，金额 {amt} USDT")
     return ConversationHandler.END
 
-# ---------- 余额查询 ----------
 def balance(update, context):
     user_id = update.effective_user.id
     stats = UserManager.get_stats(user_id)
@@ -742,7 +731,7 @@ def balance(update, context):
     )
 
 # ============================================================
-#  3. Telegram 命令处理（原有 + 新增支付）
+#  3. Telegram 命令处理（完整实现）
 # ============================================================
 
 def start(update, context):
@@ -782,7 +771,7 @@ def cancel(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ----- /sfz 对话（完整） -----
+# ----- /sfz 对话 -----
 SFZ_NAME, SFZ_ID, SFZ_NATION, SFZ_ADDR, SFZ_EXPIRY, SFZ_PHOTO = range(6)
 
 def sfz_start(update, context):
@@ -853,7 +842,7 @@ def sfz_photo(update, context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ----- /plc 对话（完整） -----
+# ----- /plc 对话 -----
 PLC_NAME, PLC_ID, PLC_ADDR_CONFIRM, PLC_ADDR_MANUAL, PLC_PHOTO = range(10, 15)
 
 def plc_start(update, context):
@@ -964,13 +953,12 @@ def main():
     bot = updater.bot
     dp = updater.dispatcher
 
-    # ---- 普通命令 ----
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("balance", balance))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # ---- /recharge 对话 ----
+    # recharge 对话
     conv_recharge = ConversationHandler(
         entry_points=[CommandHandler('recharge', recharge_start)],
         states={
@@ -980,7 +968,7 @@ def main():
     )
     dp.add_handler(conv_recharge)
 
-    # ---- /sfz 对话 ----
+    # sfz 对话
     conv_sfz = ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -995,7 +983,7 @@ def main():
     )
     dp.add_handler(conv_sfz)
 
-    # ---- /plc 对话 ----
+    # plc 对话
     conv_plc = ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -1009,10 +997,7 @@ def main():
     )
     dp.add_handler(conv_plc)
 
-    # ---- 启动轮询线程 ----
     threading.Thread(target=check_orders, daemon=True).start()
-
-    # ---- 启动 Flask 回调服务线程 ----
     threading.Thread(target=run_flask, daemon=True).start()
 
     print("🤖 机器人已启动（身份证生成 + 支付充值）")
