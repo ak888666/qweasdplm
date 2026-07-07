@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 完整版（广西自动注册查询）=====")
+print("===== Bot 最终版（广西自动注册+验证码修复）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64
 from datetime import datetime
@@ -41,7 +41,7 @@ GX_PASSWORD = "268428."
 GX_BASE_URL = "http://www.gxdlys.com"
 ADMIN_IDS = [6040143940]
 
-# ===== JSON 存储 =====
+# ===== JSON存储 =====
 USERS_FILE = "users.json"
 try:
     with open(USERS_FILE, "r") as f:
@@ -60,7 +60,7 @@ def ensure_user(user_id):
 
 def get_user_stats(user_id):
     ensure_user(user_id)
-    d=users[str(user_id)]
+    d = users[str(user_id)]
     return {'points': d.get('points',0.0), 'total_recharge': d.get('total_recharge',0.0), 'last_sign_date': d.get('last_sign_date','')}
 
 # ===== SM4加密（广西） =====
@@ -95,7 +95,7 @@ def sm4_encrypt_ecb(plain_text:str)->str:
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ===== 广西函数（完整：登录+注册+查询） =====
+# ===== 广西函数（完整修复） =====
 def gx_login(session, id_card):
     enc_login=urllib.parse.quote(sm4_encrypt_ecb(id_card)); enc_pwd=urllib.parse.quote(sm4_encrypt_ecb(GX_PASSWORD))
     data=f"loginName={enc_login}&password={enc_pwd}&wechatUid="
@@ -109,17 +109,21 @@ def gx_login(session, id_card):
     except Exception as e: return False, str(e)
 
 def gx_get_captcha(session):
-    try:
-        url="http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode"
-        headers={"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36","X-Requested-With":"XMLHttpRequest","Accept":"application/json, text/javascript, */*; q=0.01","Accept-Encoding":"gzip, deflate","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7","Connection":"keep-alive","Referer":"http://www.gxdlys.com/Wechat/User/Regist","Host":"www.gxdlys.com"}
-        r=session.get(url, headers=headers, timeout=10)
-        if r.status_code==200:
-            data=r.json()
-            if data.get("statusCode")==200:
-                img_b64=data.get("data",{}).get("img"); uuid=data.get("data",{}).get("uuid")
-                if img_b64 and uuid: return True, img_b64, uuid
-        return False, None, None
-    except Exception as e: logger.error(f"获取验证码异常: {e}"); return False, None, None
+    for attempt in range(3):
+        try:
+            url="http://www.gxdlys.com/Wechat/FaceDetect/GetVerifyCode"
+            headers={"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36","X-Requested-With":"XMLHttpRequest","Accept":"application/json, text/javascript, */*; q=0.01","Accept-Encoding":"gzip, deflate","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7","Connection":"keep-alive","Referer":"http://www.gxdlys.com/Wechat/User/Regist","Host":"www.gxdlys.com"}
+            r=session.get(url, headers=headers, timeout=15)
+            if r.status_code==200:
+                data=r.json()
+                if data.get("statusCode")==200:
+                    img_b64=data.get("data",{}).get("img"); uuid=data.get("data",{}).get("uuid")
+                    if img_b64 and uuid:
+                        return True, img_b64, uuid
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"获取验证码尝试{attempt+1}失败: {e}")
+    return False, None, None
 
 def gx_send_sms(session, phone, captcha_code, uuid):
     data={"phoneId":phone,"type":"10001","IsEncryptPhoneId":"false","verifyCode":captcha_code,"uuid":uuid}
@@ -268,7 +272,7 @@ def generate_plc_sync(name,id_card,address,avatar_path):
     c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
     return img_bytes,pdf_bytes
 
-# ===== OkayPay客户端 =====
+# ===== OkayPay =====
 class OkayPay:
     def __init__(self,appid,token,api_url): self.appid=appid; self.token=token; self.api_url=api_url
     def _build_base(self,params):
@@ -398,7 +402,8 @@ def gxquery_start(update, context):
     save_users()
     context.user_data['gx_name']=name; context.user_data['gx_idcard']=id_card
     session=requests.Session()
-    try: session.get('http://www.gxdlys.com', timeout=5)
+    try:
+        session.get('http://www.gxdlys.com', timeout=5)
     except: pass
     context.user_data['gx_session']=session
     success, info = gx_login(session, id_card)
@@ -751,29 +756,33 @@ def main():
 
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
-        states={SFZ_NAME:[MessageHandler(Filters.text & ~Filters.command, sfz_name)],
-                SFZ_ID:[MessageHandler(Filters.text & ~Filters.command, sfz_id)],
-                SFZ_NATION:[MessageHandler(Filters.text & ~Filters.command, sfz_nation)],
-                SFZ_ADDR:[MessageHandler(Filters.text & ~Filters.command, sfz_address)],
-                SFZ_EXPIRY:[MessageHandler(Filters.text & ~Filters.command, sfz_expiry)],
-                SFZ_PHOTO:[MessageHandler(Filters.photo, sfz_photo)]},
+        states={
+            SFZ_NAME: [MessageHandler(Filters.text & ~Filters.command, sfz_name)],
+            SFZ_ID: [MessageHandler(Filters.text & ~Filters.command, sfz_id)],
+            SFZ_NATION: [MessageHandler(Filters.text & ~Filters.command, sfz_nation)],
+            SFZ_ADDR: [MessageHandler(Filters.text & ~Filters.command, sfz_address)],
+            SFZ_EXPIRY: [MessageHandler(Filters.text & ~Filters.command, sfz_expiry)],
+            SFZ_PHOTO: [MessageHandler(Filters.photo, sfz_photo)],
+        },
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
-        states={PLC_NAME:[MessageHandler(Filters.text & ~Filters.command, plc_name)],
-                PLC_ID:[MessageHandler(Filters.text & ~Filters.command, plc_id)],
-                PLC_ADDR_CONFIRM:[CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
-                PLC_ADDR_MANUAL:[MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
-                PLC_PHOTO:[MessageHandler(Filters.photo, plc_photo)]},
+        states={
+            PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
+            PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
+            PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
+            PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
+            PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
+        },
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（广西自动注册查询）")
+    print("🤖 机器人已启动（最终版）")
     updater.start_polling()
     updater.idle()
 
