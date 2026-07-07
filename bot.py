@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（最终版）
-商户信息已更新为真实平台
+合并版机器人：身份证生成 + OkayPay 自助充值（HMAC-SHA256 新协议）
+根据官方文档 https://docs.okaypay.me 完整对接
 """
 
 import sys
-print("===== Bot 完整版（身份证生成 + 支付充值）=====")
+print("===== Bot 完整版（身份证生成 + 支付充值 | HMAC-SHA256）=====")
 
 import os
 import time
@@ -17,7 +17,7 @@ import requests
 import urllib3
 import sqlite3
 import hashlib
-import urllib.parse
+import hmac
 import threading
 import logging
 import re
@@ -41,9 +41,9 @@ logging.basicConfig(
 logger = logging.getLogger('MergedBot')
 
 # ============================================================
-#  配置（已按您真实商户信息修改）
+#  配置（请将下方密钥替换为您刷新后的新密钥）
 # ============================================================
-BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"  # 请替换为您的真实Token
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAHYfu-sNW7v_I2cMcfMv52EUDjZ1xaGelY"
 
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
@@ -56,10 +56,10 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-# ----- OkayPay 真实商户信息（已更新） -----
-OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)
-OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or '8pkQrHikz3J3mipeuW9nXFNOOk9Md5E8'
-OKPAY_API_URL = 'https://api.okaypay.me/shop/'   # 注意：真实平台可能也是这个API地址，若不同请调整
+# ----- OkayPay 配置（请修改为您的最新信息） -----
+OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)          # 您的 App ID
+OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'TCtvS9O6idNOw3XaDyoTEEVG8awJCkdb'  # ⚠️ 务必刷新后填入
+OKPAY_API_URL = 'https://api.okaypay.me/shop/'
 CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://docs.okaypay.me/'
 PORT = 1010
 POINTS_RATE = 1
@@ -67,7 +67,7 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 
 # ============================================================
-#  1. 身份证生成相关函数（完整，不变）
+#  1. 身份证生成相关函数（完整）
 # ============================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -334,7 +334,7 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     return img_bytes, pdf_bytes
 
 # ============================================================
-#  2. 支付模块（含数据库、用户管理、OkayPay 客户端）
+#  2. 支付模块（数据库、用户管理、OkayPay 客户端）
 # ============================================================
 
 def init_db():
@@ -474,102 +474,172 @@ class UserManager:
                     'trans_count': row[2] or 0, 'total_amount': row[3] or 0}
         return {'points':0, 'total_recharge':0, 'trans_count':0, 'total_amount':0}
 
-# ---------- OkayPay API 客户端（带调试日志） ----------
+# ============================================================
+#  OkayPay 客户端（HMAC-SHA256 新协议）
+# ============================================================
+
 class OkayPay:
     def __init__(self, appid, token, api_url):
         self.appid = appid
         self.token = token
         self.api_url = api_url
 
-    def _sign(self, params):
+    def _build_base(self, params):
+        """构造签名原文 base（符合文档 2.1 节）"""
+        # 1. 去掉 sign 字段
+        params = {k: v for k, v in params.items() if k != 'sign'}
+        # 2. 去掉 null 和空字符串
         params = {k: v for k, v in params.items() if v is not None and v != ''}
-        params['id'] = str(self.appid)
-        sorted_params = dict(sorted(params.items()))
-        query_string = urllib.parse.urlencode(sorted_params)
-        sign_str = urllib.parse.unquote(query_string) + '&token=' + self.token
-        sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
-        logger.info(f"📝 签名参数（排序后）: {sorted_params}")
-        logger.info(f"📝 签名原串: {sign_str}")
+        # 3 & 4 & 5: 展开嵌套对象，布尔值转字符串
+        def flatten(obj, prefix=''):
+            items = {}
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    key = f"{prefix}.{k}" if prefix else k
+                    if isinstance(v, dict):
+                        items.update(flatten(v, key))
+                    else:
+                        items[key] = v
+            else:
+                items[prefix] = obj
+            return items
+
+        flat_params = {}
+        for k, v in params.items():
+            if isinstance(v, dict):
+                flat_params.update(flatten(v, k))
+            elif isinstance(v, bool):
+                flat_params[k] = 'true' if v else 'false'
+            else:
+                flat_params[k] = str(v)
+
+        # 6. 按键名 ASCII 升序排序
+        sorted_params = dict(sorted(flat_params.items()))
+        # 7. 拼接 key=value&...
+        base = '&'.join([f"{k}={v}" for k, v in sorted_params.items()])
+        logger.info(f"📝 签名原文: {base}")
+        return base
+
+    def _sign(self, params):
+        """计算 HMAC-SHA256 签名，返回 64 位大写十六进制"""
+        base = self._build_base(params)
+        sign = hmac.new(
+            self.token.encode('utf-8'),
+            base.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest().upper()
         logger.info(f"📝 计算签名: {sign}")
         return sign
 
-    def verify_sign(self, data):
+    def _signed_params(self, params):
+        """自动添加 id, timestamp, nonce, sign"""
+        nonce = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=16))
+        timestamp = int(time.time())
+
+        full_params = {
+            'id': str(self.appid),
+            'timestamp': timestamp,
+            'nonce': nonce,
+            **params
+        }
+
+        sign = self._sign(full_params)
+        full_params['sign'] = sign
+
+        logger.info(f"📤 完整提交参数: {full_params}")
+        return full_params
+
+    def verify(self, data):
+        """验证回调/响应签名"""
         if 'sign' not in data:
-            logger.error("回调数据缺少 sign 字段")
+            logger.error("响应数据缺少 sign 字段")
             return False
         in_sign = data['sign']
-        params = data.copy()
-        params.pop('sign')
-        params = {k: v for k, v in params.items() if v is not None and v != ''}
-        sorted_params = dict(sorted(params.items()))
-        query_string = urllib.parse.urlencode(sorted_params)
-        sign_str = urllib.parse.unquote(query_string) + '&token=' + self.token
-        calc_sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
-        logger.debug(f"回调签名原串: {sign_str}")
-        logger.debug(f"计算签名: {calc_sign}, 接收签名: {in_sign}")
-        return calc_sign == in_sign
+        calc_sign = self._sign(data)
+        is_valid = calc_sign == in_sign
+        logger.info(f"🔐 验签结果: {'✅ 通过' if is_valid else '❌ 失败'}")
+        return is_valid
 
     def pay_link(self, amount, unique_id):
+        """6.1 创建支付链接"""
         logger.info(f"🚀 创建支付链接 - 金额: {amount}, 订单号: {unique_id}")
         params = {
-            'unique_id': unique_id,
-            'name': '积分充值',
             'amount': f"{amount:.2f}",
             'coin': 'USDT',
+            'unique_id': unique_id,
+            'name': '积分充值',
+            'callback_url': CALLBACK_URL,
             'return_url': CALLBACK_URL
         }
-        sign = self._sign(params)
-        submit_params = params.copy()
-        submit_params['id'] = str(self.appid)
-        submit_params['sign'] = sign
+        signed = self._signed_params(params)
 
-        logger.info(f"📤 完整提交参数: {submit_params}")
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         try:
             api_url = self.api_url + 'payLink'
             logger.info(f"🌐 请求 URL: {api_url}")
-            resp = requests.post(api_url, data=submit_params, headers=headers, timeout=15, verify=False)
+            resp = requests.post(
+                api_url,
+                data=signed,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=15,
+                verify=False
+            )
             logger.info(f"📨 响应状态码: {resp.status_code}")
             logger.info(f"📨 响应内容: {resp.text}")
+
             if resp.status_code == 200:
                 result = resp.json()
-                logger.info(f"✅ 解析结果: {result}")
-                return result
+                if result.get('status') == 'success':
+                    if self.verify(result):
+                        logger.info(f"✅ 支付链接创建成功: {result}")
+                        return result
+                    else:
+                        logger.error("⚠️ 响应签名验证失败！")
+                        return {'status': 'error', 'msg': '响应签名验证失败'}
+                else:
+                    logger.info(f"⚠️ 响应状态: {result.get('status')}, msg: {result.get('msg')}")
+                    return result
             else:
-                error_result = {'error': f'HTTP {resp.status_code}', 'body': resp.text}
-                logger.error(f"❌ API请求失败: {error_result}")
-                return error_result
+                return {'status': 'error', 'msg': f'HTTP {resp.status_code}', 'body': resp.text}
         except Exception as e:
             logger.error(f"❌ 请求异常: {e}", exc_info=True)
-            return {'error': str(e)}
+            return {'status': 'error', 'msg': str(e)}
 
     def check_deposit(self, unique_id):
+        """6.2 查询充值订单"""
         logger.info(f"🔍 检查充值状态 - unique_id: {unique_id}")
         params = {'unique_id': unique_id}
-        sign = self._sign(params)
-        submit_params = params.copy()
-        submit_params['id'] = str(self.appid)
-        submit_params['sign'] = sign
+        signed = self._signed_params(params)
 
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         try:
             api_url = self.api_url + 'checkDeposit'
-            resp = requests.post(api_url, data=submit_params, headers=headers, timeout=15, verify=False)
+            resp = requests.post(
+                api_url,
+                data=signed,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                timeout=15,
+                verify=False
+            )
             logger.info(f"📨 检查响应: {resp.text}")
             if resp.status_code == 200:
                 result = resp.json()
-                logger.info(f"✅ 检查结果: {result}")
+                if result.get('status') == 'success':
+                    if self.verify(result):
+                        return result
+                    else:
+                        return {'status': 'error', 'msg': '响应签名验证失败'}
                 return result
             else:
-                error_result = {'error': f'HTTP {resp.status_code}', 'body': resp.text}
-                logger.error(f"❌ 检查请求失败: {error_result}")
-                return error_result
+                return {'status': 'error', 'msg': f'HTTP {resp.status_code}'}
         except Exception as e:
             logger.error(f"❌ 检查请求异常: {e}", exc_info=True)
-            return {'error': str(e)}
+            return {'status': 'error', 'msg': str(e)}
 
 client = OkayPay(OKPAY_ID, OKPAY_TOKEN, OKPAY_API_URL)
 orders = {}
+
+# ============================================================
+#  轮询检查线程
+# ============================================================
 
 def check_orders():
     while True:
@@ -582,12 +652,13 @@ def check_orders():
                     continue
                 if order_info['status'] == 'pending':
                     result = client.check_deposit(unique_id)
-                    if result and 'data' in result:
-                        status = result['data'].get('status')
+                    if result and result.get('status') == 'success':
+                        data = result.get('data', {})
+                        status = data.get('status')
                         if status == 1:
                             user_id = order_info['user_id']
-                            amount = float(result['data'].get('amount', 0))
-                            order_id = result['data'].get('order_id')
+                            amount = float(data.get('amount', 0))
+                            order_id = data.get('order_id')
                             points_added = UserManager.add_points(user_id, amount, order_id)
                             if points_added is not None:
                                 stats = UserManager.get_stats(user_id)
@@ -610,6 +681,10 @@ def check_orders():
             logger.error(f"订单检查异常: {e}", exc_info=True)
         time.sleep(CHECK_INTERVAL)
 
+# ============================================================
+#  Flask 回调服务
+# ============================================================
+
 flask_app = Flask(__name__)
 
 @flask_app.route('/OkPay.php', methods=['POST'])
@@ -621,45 +696,45 @@ def callback():
             data = request.form.to_dict()
         logger.info(f"收到回调: {data}")
 
-        if not client.verify_sign(data):
+        if not client.verify(data):
             logger.error("签名验证失败")
             return jsonify({'status': 'success'}), 200
 
-        if data.get('type') == 'deposit' and data.get('status') == 1:
-            order_id = data.get('order_id')
-            amount = float(data.get('amount', 0))
-            unique_id = data.get('unique_id')
+        if data.get('status') == 'success':
+            order_data = data.get('data', {})
+            order_type = order_data.get('type')
+            order_id = order_data.get('order_id')
+            amount = float(order_data.get('amount', 0))
+            unique_id = order_data.get('unique_id')
 
-            if not order_id:
-                logger.warning("回调缺少 order_id")
-                return jsonify({'status': 'success'}), 200
+            if order_type == 'deposit' and order_data.get('status') == 1:
+                conn = sqlite3.connect('user_points.db')
+                c = conn.cursor()
+                c.execute('SELECT user_id, status FROM transactions WHERE order_id = ?', (order_id,))
+                row = c.fetchone()
+                conn.close()
 
-            conn = sqlite3.connect('user_points.db')
-            c = conn.cursor()
-            c.execute('SELECT user_id, status FROM transactions WHERE order_id = ?', (order_id,))
-            row = c.fetchone()
-            conn.close()
-            if not row:
-                logger.warning(f"未找到订单 {order_id}")
-                return jsonify({'status': 'success'}), 200
+                if not row:
+                    logger.warning(f"未找到订单 {order_id}")
+                    return jsonify({'status': 'success'}), 200
 
-            user_id, current_status = row
-            if current_status == 'completed':
-                logger.info(f"订单 {order_id} 已处理")
-                return jsonify({'status': 'success'}), 200
+                user_id, current_status = row
+                if current_status == 'completed':
+                    logger.info(f"订单 {order_id} 已处理")
+                    return jsonify({'status': 'success'}), 200
 
-            points_added = UserManager.add_points(user_id, amount, order_id)
-            if points_added is not None:
-                stats = UserManager.get_stats(user_id)
-                try:
-                    bot.send_message(user_id,
-                        f"✅ 支付成功！（实时回调）\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added}\n当前积分: {stats['points']}")
-                except Exception as e:
-                    logger.error(f"发送消息失败: {e}")
-                if unique_id and unique_id in orders:
-                    orders[unique_id]['status'] = 'completed'
-            else:
-                logger.error(f"积分添加失败，订单 {order_id}")
+                points_added = UserManager.add_points(user_id, amount, order_id)
+                if points_added is not None:
+                    stats = UserManager.get_stats(user_id)
+                    try:
+                        bot.send_message(user_id,
+                            f"✅ 支付成功！（回调）\n订单号: {order_id}\n充值: {amount} USDT\n获得积分: {points_added}\n当前积分: {stats['points']}")
+                    except Exception as e:
+                        logger.error(f"发送消息失败: {e}")
+                    if unique_id and unique_id in orders:
+                        orders[unique_id]['status'] = 'completed'
+                else:
+                    logger.error(f"积分添加失败，订单 {order_id}")
 
         return jsonify({'status': 'success'}), 200
     except Exception as e:
@@ -670,7 +745,10 @@ def run_flask():
     logger.info(f"启动 Flask 回调服务，端口 {PORT}")
     flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
-# ---------- 支付命令 ----------
+# ============================================================
+#  支付命令
+# ============================================================
+
 RECHARGE_AMOUNT = 100
 
 def recharge_start(update, context):
@@ -699,7 +777,7 @@ def recharge_amount(update, context):
     points = int(amt * POINTS_RATE)
     unique_id = f"ORDER_{int(time.time())}_{user_id}_{random.randint(1000,9999)}"
     resp = client.pay_link(amt, unique_id)
-    if not resp or 'data' not in resp:
+    if not resp or resp.get('status') != 'success':
         error_msg = resp.get('msg', resp.get('error', '未知错误'))
         update.message.reply_text(f"❌ 创建订单失败: {error_msg}")
         logger.error(f"创建订单失败: {resp}")
@@ -739,7 +817,7 @@ def balance(update, context):
     )
 
 # ============================================================
-#  3. Telegram 命令处理
+#  Telegram 命令处理
 # ============================================================
 
 def start(update, context):
@@ -952,7 +1030,7 @@ def plc_photo(update, context):
     return ConversationHandler.END
 
 # ============================================================
-#  4. 主程序
+#  主程序
 # ============================================================
 
 def main():
@@ -1005,7 +1083,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（身份证生成 + 支付充值）")
+    print("🤖 机器人已启动（身份证生成 + 支付充值 | HMAC-SHA256）")
     logger.info("所有功能已加载，开始轮询...")
     updater.start_polling()
     updater.idle()
