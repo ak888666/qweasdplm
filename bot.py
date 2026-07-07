@@ -277,9 +277,9 @@ def start(update, context):
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     update.message.reply_text(
         f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
-        f"命令：\n/hainansf 身份证 → 海南大头\n/sfz → 生成身份证\n/plc → PLC身份证\n/okcz → 充值积分\n/cx → 查询余额\n"
-        f"/qd → 每日签到\n/zs 用户ID 积分 [备注] → 管理员赠送\n"
-        f"/rh → 用户列表（管理员）\n/cz 用户ID → 重置签到\n/qk → 清空所有签到\n/cancel → 取消"
+        f"命令：\n/hainansf 身份证 → 海南大头\n/sfz → 生成双面身份证\n/plc → PLC个户\n/okcz → ok自动充值积分\n/cx → 查询余额\n"
+        f"/qd → 每日签到\n/zs 管理员赠送\n"
+        f"/rh → 用户列表\n/cz 重置签到\n/qk → 清空所有签到\n/cancel → 取消"
     )
 
 def hainansf(update, context):
