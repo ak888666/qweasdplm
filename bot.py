@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + （完整实现）
+合并版机器人：身份证生成 （完整实现）
 """
 
 import sys
