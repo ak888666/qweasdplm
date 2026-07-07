@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并版机器人：身份证生成 + OkayPay 自助充值（最终修复）
+合并版机器人：身份证生成 + OkayPay 自助充值（最终版）
+商户信息已更新为真实平台
 """
 
 import sys
@@ -40,9 +41,9 @@ logging.basicConfig(
 logger = logging.getLogger('MergedBot')
 
 # ============================================================
-#  配置（已按您后台信息修改）
+#  配置（已按您真实商户信息修改）
 # ============================================================
-BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAGSJs4OWCs8pYd9oUFwHbZHpaUBM3CYgXw"  # 请替换为您的真实Token
 
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
@@ -55,17 +56,18 @@ FIXED_NAME = "刘德华"
 SAVE_FOLDER = "temp_files"
 RETRY_TIMES = 5
 
-OKPAY_ID = int(os.environ.get('OKPAY_ID') or 323)
-OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or 'fa7c788e746a54a0723cb2372f9160d593321aca910afbdb2ed0923564e5def1'
-OKPAY_API_URL = 'https://api.okaypay.me/shop/'
-CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://github.com'   # 与后台一致
+# ----- OkayPay 真实商户信息（已更新） -----
+OKPAY_ID = int(os.environ.get('OKPAY_ID') or 36326)
+OKPAY_TOKEN = os.environ.get('OKPAY_TOKEN') or '8pkQrHikz3J3mipeuW9nXFNOOk9Md5E8'
+OKPAY_API_URL = 'https://api.okaypay.me/shop/'   # 注意：真实平台可能也是这个API地址，若不同请调整
+CALLBACK_URL = os.environ.get('CALLBACK_URL') or 'https://api.okaypay.me/shop'
 PORT = 1010
 POINTS_RATE = 1
 CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 
 # ============================================================
-#  1. 身份证生成相关函数（完整）
+#  1. 身份证生成相关函数（完整，不变）
 # ============================================================
 HEADERS1 = {
     "Host": "zwfw.dn.haikou.gov.cn",
@@ -512,7 +514,7 @@ class OkayPay:
         params = {
             'unique_id': unique_id,
             'name': '积分充值',
-            'amount': f"{amount:.2f}",          # 格式化为两位小数
+            'amount': f"{amount:.2f}",
             'coin': 'USDT',
             'return_url': CALLBACK_URL
         }
@@ -737,7 +739,7 @@ def balance(update, context):
     )
 
 # ============================================================
-#  3. Telegram 命令处理（完整）
+#  3. Telegram 命令处理
 # ============================================================
 
 def start(update, context):
