@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 最终版（签到独立 + 全部修复）=====")
+print("===== Bot 最终版（独立签到+全部修复）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, sqlite3, hashlib, hmac, threading, logging, re, random, base64, urllib.parse
 from typing import Optional
@@ -18,7 +18,6 @@ logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
 BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
-
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
     "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
@@ -39,7 +38,7 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 GX_QUERY_PRICE = 0.05
 GX_PASSWORD = "268428."
-ADMIN_IDS = [6040143940]  # ⚠️ 请将您的管理员ID填入此处
+ADMIN_IDS = [6040143940]  # 您的管理员ID
 
 # ===== 身份证生成函数（完整保留） =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
@@ -154,137 +153,189 @@ def generate_plc_sync(name, id_card, address, avatar_path):
     c.drawImage(tmp_path, (A4[0]-w*scale)/2, (A4[1]-h*scale)/2, w*scale, h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
     return img_bytes, pdf_bytes
 
-# ===== 数据库 =====
+# ===== 数据库（重构：移除signin表，users增加last_sign_date） =====
 def init_db():
-    conn = sqlite3.connect('user_points.db'); c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, points REAL DEFAULT 0, total_recharge REAL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
-    c.execute('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, order_id TEXT UNIQUE, unique_id TEXT UNIQUE, amount REAL, points_earned REAL, status TEXT DEFAULT "pending", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMP)')
-    c.execute('CREATE TABLE IF NOT EXISTS point_history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, change_type TEXT, change_amount REAL, current_balance REAL, description TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
-    c.execute('CREATE TABLE IF NOT EXISTS signin (user_id INTEGER PRIMARY KEY, last_sign_date TEXT)')
-    conn.commit(); conn.close(); logger.info("数据库初始化完成")
+    conn = sqlite3.connect('user_points.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        points REAL DEFAULT 0,
+        total_recharge REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_sign_date TEXT
+    )''')
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN last_sign_date TEXT')
+    except sqlite3.OperationalError:
+        pass
+    c.execute('''CREATE TABLE IF NOT EXISTS transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        order_id TEXT UNIQUE,
+        unique_id TEXT UNIQUE,
+        amount REAL,
+        points_earned REAL,
+        status TEXT DEFAULT "pending",
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        processed_at TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS point_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        change_type TEXT,
+        change_amount REAL,
+        current_balance REAL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('DROP TABLE IF EXISTS signin')  # 清除旧表
+    conn.commit()
+    conn.close()
+    logger.info("数据库初始化完成（已移除signin表）")
 init_db()
 
-# ===== UserManager（彻底修复签到独立） =====
+# ===== UserManager（全新签到逻辑，每人独立） =====
 class UserManager:
     @staticmethod
     def get_user(user_id):
-        conn=sqlite3.connect('user_points.db'); c=conn.cursor(); c.execute('SELECT * FROM users WHERE user_id=?',(user_id,)); row=c.fetchone(); conn.close()
-        if row: return dict(zip(['user_id','username','first_name','last_name','points','total_recharge','created_at','last_active'], row))
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
+        c.execute('SELECT * FROM users WHERE user_id=?',(user_id,))
+        row=c.fetchone(); conn.close()
+        if row:
+            return dict(zip(['user_id','username','first_name','last_name','points','total_recharge','created_at','last_active','last_sign_date'], row))
         return None
+
     @staticmethod
     def create_user(user_id, username, first_name, last_name):
-        conn=sqlite3.connect('user_points.db'); c=conn.cursor(); c.execute('INSERT OR IGNORE INTO users (user_id, username, first_name, last_name) VALUES (?,?,?,?)', (user_id, username, first_name, last_name)); conn.commit(); conn.close()
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
+        c.execute('INSERT OR IGNORE INTO users (user_id, username, first_name, last_name) VALUES (?,?,?,?)',
+                  (user_id, username, first_name, last_name))
+        conn.commit(); conn.close()
+
     @staticmethod
     def create_pending_order(user_id, order_id, unique_id, amount, points):
         conn=sqlite3.connect('user_points.db'); c=conn.cursor()
-        try: c.execute('INSERT INTO transactions (user_id, order_id, unique_id, amount, points_earned, status) VALUES (?,?,?,?,?,?)', (user_id, order_id, unique_id, amount, points, 'pending')); conn.commit()
-        except sqlite3.IntegrityError: logger.warning(f"订单 {order_id} 已存在")
-        finally: conn.close()
+        try:
+            c.execute('INSERT INTO transactions (user_id, order_id, unique_id, amount, points_earned, status) VALUES (?,?,?,?,?,?)',
+                      (user_id, order_id, unique_id, amount, points, 'pending'))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            logger.warning(f"订单 {order_id} 已存在")
+        finally:
+            conn.close()
+
     @staticmethod
     def add_points(user_id, amount_usdt, order_id):
-        points=amount_usdt*POINTS_RATE; conn=sqlite3.connect('user_points.db'); c=conn.cursor()
+        points=amount_usdt*POINTS_RATE
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
         try:
-            c.execute('SELECT status FROM transactions WHERE order_id=?',(order_id,)); row=c.fetchone()
-            if row and row[0]=='completed': conn.close(); return points
-            c.execute('SELECT points FROM users WHERE user_id=?',(user_id,)); current=c.fetchone()
-            if not current: conn.close(); return None
+            c.execute('SELECT status FROM transactions WHERE order_id=?',(order_id,))
+            row=c.fetchone()
+            if row and row[0]=='completed':
+                conn.close(); return points
+            c.execute('SELECT points FROM users WHERE user_id=?',(user_id,))
+            current=c.fetchone()
+            if not current:
+                conn.close(); return None
             current_points=current[0] if current[0] is not None else 0.0
-            c.execute('BEGIN'); c.execute('UPDATE users SET points=points+?, total_recharge=total_recharge+?, last_active=CURRENT_TIMESTAMP WHERE user_id=?', (points, amount_usdt, user_id))
-            if row: c.execute('UPDATE transactions SET status=?, processed_at=CURRENT_TIMESTAMP WHERE order_id=?', ('completed', order_id))
-            else: c.execute('INSERT INTO transactions (user_id, order_id, amount, points_earned, status, processed_at) VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)', (user_id, order_id, amount_usdt, points, 'completed'))
-            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)', (user_id, 'recharge', points, current_points+points, f'充值 {amount_usdt} USDT'))
-            conn.commit(); return points
-        except Exception as e: conn.rollback(); logger.error(f"加积分失败: {e}"); raise
-        finally: conn.close()
+            c.execute('BEGIN')
+            c.execute('UPDATE users SET points=points+?, total_recharge=total_recharge+?, last_active=CURRENT_TIMESTAMP WHERE user_id=?',
+                      (points, amount_usdt, user_id))
+            if row:
+                c.execute('UPDATE transactions SET status=?, processed_at=CURRENT_TIMESTAMP WHERE order_id=?',
+                          ('completed', order_id))
+            else:
+                c.execute('INSERT INTO transactions (user_id, order_id, amount, points_earned, status, processed_at) VALUES (?,?,?,?,?, CURRENT_TIMESTAMP)',
+                          (user_id, order_id, amount_usdt, points, 'completed'))
+            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
+                      (user_id, 'recharge', points, current_points+points, f'充值 {amount_usdt} USDT'))
+            conn.commit()
+            return points
+        except Exception as e:
+            conn.rollback(); logger.error(f"加积分失败: {e}"); raise
+        finally:
+            conn.close()
+
     @staticmethod
     def deduct_points(user_id, amount):
         if amount<=0: return False
         conn=sqlite3.connect('user_points.db'); c=conn.cursor()
         try:
-            c.execute('SELECT points FROM users WHERE user_id=?',(user_id,)); row=c.fetchone()
+            c.execute('SELECT points FROM users WHERE user_id=?',(user_id,))
+            row=c.fetchone()
             if not row: return False
             current=row[0] if row[0] is not None else 0.0
             if current<amount: return False
-            c.execute('BEGIN'); c.execute('UPDATE users SET points=points-?, last_active=CURRENT_TIMESTAMP WHERE user_id=?', (amount, user_id))
-            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)', (user_id, 'consume', -amount, current-amount, f'广西查询消耗 {amount:.2f} 积分'))
+            c.execute('BEGIN')
+            c.execute('UPDATE users SET points=points-?, last_active=CURRENT_TIMESTAMP WHERE user_id=?', (amount, user_id))
+            c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
+                      (user_id, 'consume', -amount, current-amount, f'广西查询消耗 {amount:.2f} 积分'))
             conn.commit(); return True
-        except Exception as e: conn.rollback(); logger.error(f"扣积分失败: {e}"); return False
-        finally: conn.close()
+        except Exception as e:
+            conn.rollback(); logger.error(f"扣积分失败: {e}"); return False
+        finally:
+            conn.close()
+
     @staticmethod
     def get_stats(user_id):
-        conn = sqlite3.connect('user_points.db')
-        c = conn.cursor()
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
         c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
         c.execute('''
-            SELECT u.points, u.total_recharge, COUNT(t.id), COALESCE(SUM(t.amount),0)
-            FROM users u LEFT JOIN transactions t ON u.user_id = t.user_id AND t.status="completed"
-            WHERE u.user_id = ?
-            GROUP BY u.user_id
+            SELECT points, total_recharge, last_sign_date
+            FROM users
+            WHERE user_id = ?
         ''', (user_id,))
-        row = c.fetchone()
-        conn.close()
+        row=c.fetchone(); conn.close()
         if row:
-            return {'points': row[0] or 0.0, 'total_recharge': row[1] or 0.0,
-                    'trans_count': row[2] or 0, 'total_amount': row[3] or 0.0}
-        return {'points': 0.0, 'total_recharge': 0.0, 'trans_count': 0, 'total_amount': 0.0}
-    
+            return {
+                'points': row[0] or 0.0,
+                'total_recharge': row[1] or 0.0,
+                'last_sign_date': row[2]
+            }
+        return {'points':0.0, 'total_recharge':0.0, 'last_sign_date':None}
+
     @staticmethod
     def sign_in(user_id):
-        """✅ 修复：每个人独立签到，互不影响"""
+        """每日签到 - 每人独立"""
         today = time.strftime('%Y-%m-%d')
-        conn = sqlite3.connect('user_points.db')
-        c = conn.cursor()
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
         try:
-            # 确保用户存在
             c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
-            
-            # ✅ 关键修复：只查询当前用户自己的签到记录
-            c.execute('SELECT last_sign_date FROM signin WHERE user_id = ?', (user_id,))
+            c.execute('SELECT last_sign_date FROM users WHERE user_id = ?', (user_id,))
             row = c.fetchone()
             if row and row[0] == today:
                 return False, 0
-            
-            # 获取当前积分
             c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
             current_row = c.fetchone()
             current_points = current_row[0] if current_row and current_row[0] is not None else 0.0
-            
             reward = 0.05
             new_points = current_points + reward
-            
             c.execute('BEGIN')
-            c.execute('UPDATE users SET points = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?',
-                      (new_points, user_id))
+            c.execute('UPDATE users SET points = ?, last_active = CURRENT_TIMESTAMP, last_sign_date = ? WHERE user_id = ?',
+                      (new_points, today, user_id))
             c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
                       (user_id, 'signin', reward, new_points, '每日签到'))
-            
-            # ✅ 关键修复：INSERT OR REPLACE 确保每个用户只有一条记录
-            if row:
-                c.execute('UPDATE signin SET last_sign_date = ? WHERE user_id = ?', (today, user_id))
-            else:
-                c.execute('INSERT INTO signin (user_id, last_sign_date) VALUES (?, ?)', (user_id, today))
             conn.commit()
             return True, reward
         except Exception as e:
-            conn.rollback()
-            logger.error(f"签到失败: {e}")
+            conn.rollback(); logger.error(f"签到失败: {e}")
             return False, 0
         finally:
             conn.close()
-    
+
     @staticmethod
     def add_points_direct(user_id, amount, description='管理员赠送'):
-        """✅ 修复：用户不存在时自动创建并加积分"""
-        if amount <= 0:
-            return False
-        conn = sqlite3.connect('user_points.db')
-        c = conn.cursor()
+        if amount <= 0: return False
+        conn=sqlite3.connect('user_points.db'); c=conn.cursor()
         try:
             c.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
             c.execute('SELECT points FROM users WHERE user_id = ?', (user_id,))
             row = c.fetchone()
-            if not row:
-                return False
+            if not row: return False
             current = row[0] if row[0] is not None else 0.0
             new_points = current + amount
             c.execute('BEGIN')
@@ -292,12 +343,9 @@ class UserManager:
                       (new_points, user_id))
             c.execute('INSERT INTO point_history (user_id, change_type, change_amount, current_balance, description) VALUES (?,?,?,?,?)',
                       (user_id, 'gift', amount, new_points, description))
-            conn.commit()
-            return True
+            conn.commit(); return True
         except Exception as e:
-            conn.rollback()
-            logger.error(f"赠送积分失败: {e}")
-            return False
+            conn.rollback(); logger.error(f"赠送积分失败: {e}"); return False
         finally:
             conn.close()
 
@@ -506,12 +554,12 @@ def start(update, context):
         f"/plc → 生成PLC模板身份证\n"
         f"/recharge → 充值积分\n"
         f"/balance → 查询积分余额\n"
-        f"/gxquery 姓名 身份证 → 查询广西照片（消耗0.05积分）\n"
+        f"/gxquery 姓名 身份证 → 查询广西照片\n"
         f"/givepoint 用户ID 积分 [备注] → 管理员赠送\n"
         f"/users → 查看所有用户（管理员）\n"
         f"/reset_signin 用户ID → 重置签到（管理员）\n"
-        f"/force_signin 用户ID → 强制签到（管理员，无视今日限制）\n"
-        f"/clear_all_signin → ⚠️ 清空所有签到记录（管理员）\n"
+        f"/force_signin 用户ID → 强制签到（管理员）\n"
+        f"/clear_all_signin → ⚠️ 清空所有签到日期（管理员）\n"
         f"/cancel → 取消当前操作"
     )
 
@@ -558,7 +606,6 @@ def balance(update, context):
     update.message.reply_text(f"📊 您的积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
 
 def signin(update, context):
-    """✅ 修复：每个人独立签到"""
     uid = update.effective_user.id
     success, reward = UserManager.sign_in(uid)
     if success:
@@ -585,7 +632,6 @@ def givepoint(update, context):
         update.message.reply_text(f"❌ 赠送失败，请确认用户 {target_id} 存在")
 
 def reset_signin(update, context):
-    """管理员重置签到状态"""
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         update.message.reply_text("❌ 您没有管理员权限")
@@ -601,13 +647,12 @@ def reset_signin(update, context):
         return
     conn=sqlite3.connect('user_points.db')
     c=conn.cursor()
-    c.execute('DELETE FROM signin WHERE user_id = ?', (target_id,))
+    c.execute('UPDATE users SET last_sign_date = NULL WHERE user_id = ?', (target_id,))
     conn.commit()
     conn.close()
     update.message.reply_text(f"✅ 已重置用户 {target_id} 的签到状态，该用户可以重新签到。")
 
 def force_signin(update, context):
-    """管理员强制签到（无视今日记录，直接加积分）"""
     uid = update.effective_user.id
     if uid not in ADMIN_IDS:
         update.message.reply_text("❌ 您没有管理员权限")
@@ -621,15 +666,11 @@ def force_signin(update, context):
     except:
         update.message.reply_text("❌ 用户ID必须是数字")
         return
-
-    # 先删除该用户的 signin 记录
     conn = sqlite3.connect('user_points.db')
     c = conn.cursor()
-    c.execute('DELETE FROM signin WHERE user_id = ?', (target_id,))
+    c.execute('UPDATE users SET last_sign_date = NULL WHERE user_id = ?', (target_id,))
     conn.commit()
     conn.close()
-
-    # 调用签到方法
     success, reward = UserManager.sign_in(target_id)
     if success:
         stats = UserManager.get_stats(target_id)
@@ -638,20 +679,18 @@ def force_signin(update, context):
         update.message.reply_text(f"❌ 强制签到失败，请检查用户是否存在")
 
 def clear_all_signin(update, context):
-    """⚠️ 管理员：清空所有签到记录（解决旧数据残留问题）"""
     uid = update.effective_user.id
     if uid not in ADMIN_IDS:
         update.message.reply_text("❌ 您没有管理员权限")
         return
     conn = sqlite3.connect('user_points.db')
     c = conn.cursor()
-    c.execute('DELETE FROM signin')
+    c.execute('UPDATE users SET last_sign_date = NULL')
     conn.commit()
     conn.close()
-    update.message.reply_text("⚠️ 已清空所有签到记录！所有用户今天都可以重新签到一次。")
+    update.message.reply_text("⚠️ 已清空所有用户的签到日期！所有人今天都可以重新签到一次。")
 
 def list_users(update, context):
-    """管理员查看所有用户列表"""
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         update.message.reply_text("❌ 您没有管理员权限")
@@ -795,7 +834,7 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🤖 机器人已启动（最终版：签到独立 + 全部修复）")
+    print("🤖 机器人已启动（最终版：独立签到+全部修复）")
     updater.start_polling()
     updater.idle()
 
