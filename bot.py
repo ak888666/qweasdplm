@@ -43,7 +43,7 @@ logger = logging.getLogger('MergedBot')
 # ============================================================
 #  配置（请将下方密钥替换为您刷新后的新密钥）
 # ============================================================
-BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAHYfu-sNW7v_I2cMcfMv52EUDjZ1xaGelY"
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAERYX0V4qwtQGggXTWQsFI5rlojuNY6oWM"
 
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
