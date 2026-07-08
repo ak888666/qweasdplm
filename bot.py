@@ -655,66 +655,33 @@ GX_HEADERS = {
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
 }
 
-# ---------- 核心：验证码识别（纯在线 OCR）----------
+# ---------- 修改后的验证码函数（强制返回固定验证码） ----------
 def gx_auto_captcha():
-    """使用 ocr.space 在线 API 识别验证码（带重试）"""
-    for attempt in range(1, 4):  # 最多重试3次
-        try:
-            print(f"[验证码] 第 {attempt} 次尝试获取并识别...")
-            # 1. 获取验证码图片
-            resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
-            if resp.status_code != 200:
-                print(f"获取验证码失败，状态码: {resp.status_code}")
-                continue
-            data = resp.json()
-            if data.get("statusCode") != 200:
-                print(f"接口返回错误: {data.get('info', '未知错误')}")
-                continue
-            img_b64 = data.get("data", {}).get("img")
-            uuid = data.get("data", {}).get("uuid")
-            if not img_b64 or not uuid:
-                print("返回数据缺少 img 或 uuid")
-                continue
-            img_bytes = base64.b64decode(img_b64)
-            print(f"验证码图片大小: {len(img_bytes)} 字节")
-
-            # 2. 调用 ocr.space API
-            encoded_image = base64.b64encode(img_bytes).decode('utf-8')
-            ocr_url = "https://api.ocr.space/parse/image"
-            payload = {
-                "apikey": "helloworld",  # 免费测试 key
-                "base64Image": f"data:image/jpeg;base64,{encoded_image}",
-                "language": "eng",
-                "OCREngine": 2,
-                "scale": True,
-                "isOverlayRequired": False,
-                "detectOrientation": False,
-            }
-            print("正在请求 ocr.space ...")
-            response = requests.post(ocr_url, data=payload, timeout=30)
-            print(f"ocr.space 响应状态码: {response.status_code}")
-            if response.status_code == 200:
-                result = response.json()
-                # 打印部分响应内容以便调试
-                print(f"OCR 响应: {json.dumps(result, ensure_ascii=False)[:300]}")
-                if result.get("OCRExitCode") == 1:
-                    parsed_text = result.get("ParsedResults", [{}])[0].get("ParsedText", "").strip()
-                    code = re.sub(r'[^A-Z0-9]', '', parsed_text.upper())
-                    if code:
-                        print(f"识别成功，验证码: {code}")
-                        return code, uuid
-                    else:
-                        print("识别结果为空")
-                else:
-                    print(f"OCR 失败，错误码: {result.get('OCRExitCode')}")
-            else:
-                print(f"请求 ocr.space 失败，HTTP {response.status_code}")
-        except Exception as e:
-            print(f"验证码识别异常: {e}")
-        # 等待后再重试
-        time.sleep(2)
-    print("所有重试均失败")
-    return None, None
+    """强制返回固定验证码，用于测试流程"""
+    print("=== 进入 gx_auto_captcha ===")  # 关键日志
+    try:
+        # 1. 获取 uuid（即使图片识别失败，也需要 uuid 才能发送短信）
+        resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
+        print(f"获取验证码接口状态码: {resp.status_code}")
+        if resp.status_code != 200:
+            print("获取验证码接口失败，状态码非200")
+            return None, None
+        data = resp.json()
+        print(f"验证码接口返回: {data}")
+        if data.get("statusCode") != 200:
+            print(f"接口返回错误: {data.get('info', '未知错误')}")
+            return None, None
+        uuid = data.get("data", {}).get("uuid")
+        if not uuid:
+            print("返回数据中没有 uuid")
+            return None, None
+        # 2. 返回固定测试验证码
+        test_code = "1234"
+        print(f"=== 强制返回固定验证码: {test_code} ===")
+        return test_code, uuid
+    except Exception as e:
+        print(f"gx_auto_captcha 异常: {e}")
+        return None, None
 
 def gx_send_sms(phone, captcha_code, uuid, session):
     data = {
@@ -873,6 +840,7 @@ def gx_id(update, context):
     return GX_PHONE
 
 def gx_phone(update, context):
+    print("=== 进入 gx_phone ===")  # 关键日志
     phone = update.message.text.strip()
     if not phone.isdigit() or len(phone) < 11:
         update.message.reply_text("❌ 手机号格式错误，请重新输入：")
@@ -880,6 +848,7 @@ def gx_phone(update, context):
     context.user_data['gx_phone'] = phone
     update.message.reply_text("⏳ 正在获取并识别验证码...")
     captcha, uuid = gx_auto_captcha()
+    print(f"gx_auto_captcha 返回: captcha={captcha}, uuid={uuid}")
     if not captcha or not uuid:
         update.message.reply_text("❌ 获取/识别验证码失败，请稍后重试 /gx")
         return ConversationHandler.END
