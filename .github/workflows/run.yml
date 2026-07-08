@@ -20,9 +20,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
-          # 不再需要 ddddocr，即使安装失败也不影响（因为我们用超级鹰）
-          pip install ddddocr || echo "ddddocr 安装失败，忽略"
+          pip install -r requirements.txt --timeout 1000
+          # 强制安装 ddddocr，即使失败也不影响（会回退到在线 OCR）
+          pip install ddddocr --timeout 1000 || echo "ddddocr 安装失败，将使用在线 OCR"
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
