@@ -21,7 +21,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ddddocr || echo "ddddocr 安装失败，将使用手动验证码模式"
+          # 不再需要 ddddocr，即使安装失败也不影响（因为我们用超级鹰）
+          pip install ddddocr || echo "ddddocr 安装失败，忽略"
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
