@@ -11,7 +11,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request, jsonify
 
-# ===== 不再需要 ddddocr，改用超级鹰 =====
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('MergedBot')
@@ -546,14 +545,14 @@ def plc_photo(update,context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ==================== 新增：/gx 广西道路运输证查询 ====================
+# ==================== /gx 广西道路运输证查询 ====================
 # 状态常量
 GX_NAME, GX_ID, GX_PHONE, GX_SMS_CODE = range(20, 24)
 
-# 固定密码（与原脚本一致）
+# 固定密码
 GX_PASSWORD = "268428."
 
-# SM4 加密函数（直接复制原脚本）
+# SM4 加密函数
 SM4_KEY = "CatsPK0WWWRRhjkw"
 SboxTable = [
     0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
@@ -644,7 +643,7 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ------- 广西相关功能函数 -------
+# ------- 广西相关功能 -------
 BASE_URL_GX = "http://www.gxdlys.com"
 GX_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36",
@@ -657,49 +656,70 @@ GX_HEADERS = {
 }
 
 def gx_auto_captcha():
-    """使用超级鹰自动识别验证码，返回 (验证码字符串, uuid)"""
+    """自动识别验证码，优先使用 ddddocr，失败则使用 ocr.space 在线 API"""
     try:
         # 1. 获取验证码图片
         resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
         if resp.status_code != 200:
+            logger.error(f"获取验证码失败，状态码: {resp.status_code}")
             return None, None
         data = resp.json()
         if data.get("statusCode") != 200:
+            logger.error(f"接口返回错误: {data.get('info', '未知错误')}")
             return None, None
         img_b64 = data.get("data", {}).get("img")
         uuid = data.get("data", {}).get("uuid")
         if not img_b64 or not uuid:
+            logger.error("返回数据缺少 img 或 uuid")
             return None, None
         img_bytes = base64.b64decode(img_b64)
 
-        # 2. 调用超级鹰 API
-        # ===== 你的超级鹰账号信息 =====
-        CJY_USER = "202607055w66t138"
-        CJY_PASS = "zxcvbnm369f"
-        CJY_SOFTID = "982408"
-        CJY_CODETYPE = "1004"   # 英文+数字，长度可变
+        # 2. 尝试识别
+        code = None
 
-        api_url = "http://api.chaojiying.net/Upload/Processing.php"
-        pass_md5 = hashlib.md5(CJY_PASS.encode('utf-8')).hexdigest()
+        # 2.1 尝试使用 ddddocr（本地）
+        try:
+            import ddddocr
+            ocr = ddddocr.DdddOcr(show_ad=False)
+            code = ocr.classification(img_bytes)
+            code = re.sub(r'[^A-Z0-9]', '', code.upper())
+            if code:
+                logger.info(f"ddddocr 识别成功: {code}")
+                return code, uuid
+        except Exception as e:
+            logger.warning(f"ddddocr 识别失败，切换到在线 OCR: {e}")
 
-        files = {'userfile': ('captcha.jpg', img_bytes)}
-        data_post = {
-            'user': CJY_USER,
-            'pass': pass_md5,
-            'softid': CJY_SOFTID,
-            'codetype': CJY_CODETYPE,
-        }
-        response = requests.post(api_url, data=data_post, files=files, timeout=30)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('err_no') == 0:
-                code = result.get('pic_str', '').strip().upper()
-                code = re.sub(r'[^A-Z0-9]', '', code)  # 只保留字母数字
-                if code:
-                    return code, uuid
+        # 2.2 使用 ocr.space 在线 API（免费，无需账号）
+        if not code:
+            try:
+                encoded_image = base64.b64encode(img_bytes).decode('utf-8')
+                ocr_url = "https://api.ocr.space/parse/image"
+                payload = {
+                    "apikey": "helloworld",  # 免费测试 key，每天 500 次
+                    "base64Image": f"data:image/jpeg;base64,{encoded_image}",
+                    "language": "eng",
+                    "OCREngine": 2,
+                    "scale": True,
+                    "isOverlayRequired": False,
+                    "detectOrientation": False,
+                }
+                response = requests.post(ocr_url, data=payload, timeout=30)
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("OCRExitCode") == 1:
+                        parsed_text = result.get("ParsedResults", [{}])[0].get("ParsedText", "").strip()
+                        code = re.sub(r'[^A-Z0-9]', '', parsed_text.upper())
+                        if code:
+                            logger.info(f"ocr.space 识别成功: {code}")
+                            return code, uuid
+                logger.error("ocr.space 识别失败")
+            except Exception as e:
+                logger.error(f"在线 OCR 异常: {e}")
+
+        logger.error("所有识别方式均失败")
         return None, None
     except Exception as e:
-        logger.error(f"超级鹰识别异常: {e}")
+        logger.error(f"验证码获取异常: {e}")
         return None, None
 
 def gx_send_sms(phone, captcha_code, uuid, session):
@@ -864,7 +884,7 @@ def gx_phone(update, context):
         update.message.reply_text("❌ 手机号格式错误，请重新输入：")
         return GX_PHONE
     context.user_data['gx_phone'] = phone
-    update.message.reply_text("⏳ 正在获取验证码并识别...")
+    update.message.reply_text("⏳ 正在获取并识别验证码...")
     captcha, uuid = gx_auto_captcha()
     if not captcha or not uuid:
         update.message.reply_text("❌ 获取/识别验证码失败，请稍后重试 /gx")
@@ -924,7 +944,6 @@ def gx_sms_code(update, context):
     if file_id:
         photo_data = gx_download_photo(file_id, session)
         if photo_data:
-            # 改为以文件形式发送
             context.bot.send_document(
                 chat_id=update.effective_chat.id,
                 document=io.BytesIO(photo_data),
