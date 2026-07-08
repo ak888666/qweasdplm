@@ -818,7 +818,7 @@ def gx_download_photo(file_id, session):
 
 # ------- /gx 对话处理 -------
 def gx_start(update, context):
-    print("=== GX START CALLED ===")  # 新增
+    print("=== GX START CALLED ===")
     context.user_data.clear()
     context.user_data['gx_session'] = requests.Session()
     update.message.reply_text("👤 请输入姓名：")
@@ -986,11 +986,12 @@ def main():
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
 
-    print("🔄 开始轮询 Telegram 服务器...")
     updater.start_polling()
     print("✅ 机器人已进入运行状态，等待消息...")
-    updater.idle()
-    print("⏹️ 机器人已停止")
+    
+    # 保持主线程永久运行（直到 GitHub Actions 超时或被取消）
+    while True:
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
