@@ -655,72 +655,66 @@ GX_HEADERS = {
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
 }
 
+# ---------- 核心：验证码识别（纯在线 OCR）----------
 def gx_auto_captcha():
-    """自动识别验证码，优先使用 ddddocr，失败则使用 ocr.space 在线 API"""
-    try:
-        # 1. 获取验证码图片
-        resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
-        if resp.status_code != 200:
-            logger.error(f"获取验证码失败，状态码: {resp.status_code}")
-            return None, None
-        data = resp.json()
-        if data.get("statusCode") != 200:
-            logger.error(f"接口返回错误: {data.get('info', '未知错误')}")
-            return None, None
-        img_b64 = data.get("data", {}).get("img")
-        uuid = data.get("data", {}).get("uuid")
-        if not img_b64 or not uuid:
-            logger.error("返回数据缺少 img 或 uuid")
-            return None, None
-        img_bytes = base64.b64decode(img_b64)
-
-        # 2. 尝试识别
-        code = None
-
-        # 2.1 尝试使用 ddddocr（本地）
+    """使用 ocr.space 在线 API 识别验证码（带重试）"""
+    for attempt in range(1, 4):  # 最多重试3次
         try:
-            import ddddocr
-            ocr = ddddocr.DdddOcr(show_ad=False)
-            code = ocr.classification(img_bytes)
-            code = re.sub(r'[^A-Z0-9]', '', code.upper())
-            if code:
-                logger.info(f"ddddocr 识别成功: {code}")
-                return code, uuid
+            print(f"[验证码] 第 {attempt} 次尝试获取并识别...")
+            # 1. 获取验证码图片
+            resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
+            if resp.status_code != 200:
+                print(f"获取验证码失败，状态码: {resp.status_code}")
+                continue
+            data = resp.json()
+            if data.get("statusCode") != 200:
+                print(f"接口返回错误: {data.get('info', '未知错误')}")
+                continue
+            img_b64 = data.get("data", {}).get("img")
+            uuid = data.get("data", {}).get("uuid")
+            if not img_b64 or not uuid:
+                print("返回数据缺少 img 或 uuid")
+                continue
+            img_bytes = base64.b64decode(img_b64)
+            print(f"验证码图片大小: {len(img_bytes)} 字节")
+
+            # 2. 调用 ocr.space API
+            encoded_image = base64.b64encode(img_bytes).decode('utf-8')
+            ocr_url = "https://api.ocr.space/parse/image"
+            payload = {
+                "apikey": "helloworld",  # 免费测试 key
+                "base64Image": f"data:image/jpeg;base64,{encoded_image}",
+                "language": "eng",
+                "OCREngine": 2,
+                "scale": True,
+                "isOverlayRequired": False,
+                "detectOrientation": False,
+            }
+            print("正在请求 ocr.space ...")
+            response = requests.post(ocr_url, data=payload, timeout=30)
+            print(f"ocr.space 响应状态码: {response.status_code}")
+            if response.status_code == 200:
+                result = response.json()
+                # 打印部分响应内容以便调试
+                print(f"OCR 响应: {json.dumps(result, ensure_ascii=False)[:300]}")
+                if result.get("OCRExitCode") == 1:
+                    parsed_text = result.get("ParsedResults", [{}])[0].get("ParsedText", "").strip()
+                    code = re.sub(r'[^A-Z0-9]', '', parsed_text.upper())
+                    if code:
+                        print(f"识别成功，验证码: {code}")
+                        return code, uuid
+                    else:
+                        print("识别结果为空")
+                else:
+                    print(f"OCR 失败，错误码: {result.get('OCRExitCode')}")
+            else:
+                print(f"请求 ocr.space 失败，HTTP {response.status_code}")
         except Exception as e:
-            logger.warning(f"ddddocr 识别失败，切换到在线 OCR: {e}")
-
-        # 2.2 使用 ocr.space 在线 API（免费，无需账号）
-        if not code:
-            try:
-                encoded_image = base64.b64encode(img_bytes).decode('utf-8')
-                ocr_url = "https://api.ocr.space/parse/image"
-                payload = {
-                    "apikey": "helloworld",  # 免费测试 key，每天 500 次
-                    "base64Image": f"data:image/jpeg;base64,{encoded_image}",
-                    "language": "eng",
-                    "OCREngine": 2,
-                    "scale": True,
-                    "isOverlayRequired": False,
-                    "detectOrientation": False,
-                }
-                response = requests.post(ocr_url, data=payload, timeout=30)
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("OCRExitCode") == 1:
-                        parsed_text = result.get("ParsedResults", [{}])[0].get("ParsedText", "").strip()
-                        code = re.sub(r'[^A-Z0-9]', '', parsed_text.upper())
-                        if code:
-                            logger.info(f"ocr.space 识别成功: {code}")
-                            return code, uuid
-                logger.error("ocr.space 识别失败")
-            except Exception as e:
-                logger.error(f"在线 OCR 异常: {e}")
-
-        logger.error("所有识别方式均失败")
-        return None, None
-    except Exception as e:
-        logger.error(f"验证码获取异常: {e}")
-        return None, None
+            print(f"验证码识别异常: {e}")
+        # 等待后再重试
+        time.sleep(2)
+    print("所有重试均失败")
+    return None, None
 
 def gx_send_sms(phone, captcha_code, uuid, session):
     data = {
