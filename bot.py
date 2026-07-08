@@ -655,12 +655,11 @@ GX_HEADERS = {
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
 }
 
-# ---------- 修改后的验证码函数（强制返回固定验证码） ----------
+# ---------- 强制返回固定验证码 ----------
 def gx_auto_captcha():
     """强制返回固定验证码，用于测试流程"""
-    print("=== 进入 gx_auto_captcha ===")  # 关键日志
+    print("=== 进入 gx_auto_captcha ===")
     try:
-        # 1. 获取 uuid（即使图片识别失败，也需要 uuid 才能发送短信）
         resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
         print(f"获取验证码接口状态码: {resp.status_code}")
         if resp.status_code != 200:
@@ -675,7 +674,6 @@ def gx_auto_captcha():
         if not uuid:
             print("返回数据中没有 uuid")
             return None, None
-        # 2. 返回固定测试验证码
         test_code = "1234"
         print(f"=== 强制返回固定验证码: {test_code} ===")
         return test_code, uuid
@@ -820,6 +818,7 @@ def gx_download_photo(file_id, session):
 
 # ------- /gx 对话处理 -------
 def gx_start(update, context):
+    print("=== GX START CALLED ===")  # 新增
     context.user_data.clear()
     context.user_data['gx_session'] = requests.Session()
     update.message.reply_text("👤 请输入姓名：")
@@ -840,7 +839,7 @@ def gx_id(update, context):
     return GX_PHONE
 
 def gx_phone(update, context):
-    print("=== 进入 gx_phone ===")  # 关键日志
+    print("=== 进入 gx_phone ===")
     phone = update.message.text.strip()
     if not phone.isdigit() or len(phone) < 11:
         update.message.reply_text("❌ 手机号格式错误，请重新输入：")
