@@ -3,7 +3,7 @@
 import sys
 print("===== Bot 精简稳定版（命令已重命名）=====")
 
-import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse
+import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -11,10 +11,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request, jsonify
 
-# ---------- 新增：验证码识别库 ----------
-import ddddocr
-ocr = ddddocr.DdddOcr()
-
+# ===== 不再需要 ddddocr，改用超级鹰 =====
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('MergedBot')
@@ -282,7 +279,7 @@ def start(update, context):
     update.message.reply_text(
         f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
         f"命令：\n/hainansf 身份证 → 海南大头\n/sfz → 生成双面身份证\n/plc → PLC个户\n/okcz → ok自动充值积分\n/cx → 查询余额\n"
-        f"/qd → 每日签到\n/zs 管理员赠送\n/gx → 广西道路运输证查询(需自动识别验证码)\n"
+        f"/qd → 每日签到\n/zs 管理员赠送\n/gx → 广西道路运输证查询(自动识别验证码)\n"
         f"/rh → 用户列表\n/cz 重置签到\n/qk → 清空所有签到\n/cancel → 取消"
     )
 
@@ -660,8 +657,9 @@ GX_HEADERS = {
 }
 
 def gx_auto_captcha():
-    """自动获取并识别图形验证码，返回 (验证码字符串, uuid)"""
+    """使用超级鹰自动识别验证码，返回 (验证码字符串, uuid)"""
     try:
+        # 1. 获取验证码图片
         resp = requests.get(f"{BASE_URL_GX}/Wechat/FaceDetect/GetVerifyCode", headers=GX_HEADERS, timeout=10)
         if resp.status_code != 200:
             return None, None
@@ -673,19 +671,38 @@ def gx_auto_captcha():
         if not img_b64 or not uuid:
             return None, None
         img_bytes = base64.b64decode(img_b64)
-        # 使用 ddddocr 识别
-        code = ocr.classification(img_bytes)
-        code = re.sub(r'[^A-Z0-9]', '', code.upper())
-        if code:
-            return code, uuid
-        else:
-            return None, None
+
+        # 2. 调用超级鹰 API
+        # ===== 你的超级鹰账号信息 =====
+        CJY_USER = "202607055w66t138"
+        CJY_PASS = "zxcvbnm369f"
+        CJY_SOFTID = "982408"
+        CJY_CODETYPE = "1004"   # 英文+数字，长度可变
+
+        api_url = "http://api.chaojiying.net/Upload/Processing.php"
+        pass_md5 = hashlib.md5(CJY_PASS.encode('utf-8')).hexdigest()
+
+        files = {'userfile': ('captcha.jpg', img_bytes)}
+        data_post = {
+            'user': CJY_USER,
+            'pass': pass_md5,
+            'softid': CJY_SOFTID,
+            'codetype': CJY_CODETYPE,
+        }
+        response = requests.post(api_url, data=data_post, files=files, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('err_no') == 0:
+                code = result.get('pic_str', '').strip().upper()
+                code = re.sub(r'[^A-Z0-9]', '', code)  # 只保留字母数字
+                if code:
+                    return code, uuid
+        return None, None
     except Exception as e:
-        logger.error(f"获取验证码异常: {e}")
+        logger.error(f"超级鹰识别异常: {e}")
         return None, None
 
 def gx_send_sms(phone, captcha_code, uuid, session):
-    """发送短信验证码，返回布尔值"""
     data = {
         "phoneId": phone,
         "type": "10001",
@@ -718,7 +735,6 @@ def gx_send_sms(phone, captcha_code, uuid, session):
         return False
 
 def gx_register(phone, sms_code, captcha_code, real_name, id_card, session):
-    """提交注册，返回布尔值"""
     data = {
         "zipArea": "",
         "userType": "-1",
@@ -760,7 +776,6 @@ def gx_register(phone, sms_code, captcha_code, real_name, id_card, session):
     return False
 
 def gx_login(id_card, password, session):
-    """登录，返回布尔值"""
     encrypted_login_raw = sm4_encrypt_ecb(id_card)
     encrypted_pwd_raw = sm4_encrypt_ecb(password)
     encrypted_login = urllib.parse.quote(encrypted_login_raw)
@@ -791,7 +806,6 @@ def gx_login(id_card, password, session):
     return False
 
 def gx_query_id_photo(name, id_card, session):
-    """查询身份证照片信息，返回JSON或None"""
     try:
         encoded_name = urllib.parse.quote(name)
         url = f"{BASE_URL_GX}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
@@ -812,7 +826,6 @@ def gx_query_id_photo(name, id_card, session):
         return None
 
 def gx_download_photo(file_id, session):
-    """下载照片，返回bytes或None"""
     try:
         url = f"{BASE_URL_GX}/System/FileService/ShowFile?fileId={file_id}"
         r = session.get(url, timeout=60)
@@ -826,9 +839,8 @@ def gx_download_photo(file_id, session):
 
 # ------- /gx 对话处理 -------
 def gx_start(update, context):
-    """启动 /gx 流程"""
-    context.user_data.clear()  # 清空旧数据
-    context.user_data['gx_session'] = requests.Session()  # 每个用户独立session
+    context.user_data.clear()
+    context.user_data['gx_session'] = requests.Session()
     update.message.reply_text("👤 请输入姓名：")
     return GX_NAME
 
@@ -852,15 +864,13 @@ def gx_phone(update, context):
         update.message.reply_text("❌ 手机号格式错误，请重新输入：")
         return GX_PHONE
     context.user_data['gx_phone'] = phone
-    # 自动获取图形验证码
-    update.message.reply_text("⏳ 正在获取图形验证码...")
+    update.message.reply_text("⏳ 正在获取验证码并识别...")
     captcha, uuid = gx_auto_captcha()
     if not captcha or not uuid:
-        update.message.reply_text("❌ 获取验证码失败，请稍后重试 /gx")
+        update.message.reply_text("❌ 获取/识别验证码失败，请稍后重试 /gx")
         return ConversationHandler.END
     context.user_data['gx_captcha'] = captcha
     context.user_data['gx_uuid'] = uuid
-    # 发送短信验证码
     session = context.user_data['gx_session']
     if not gx_send_sms(phone, captcha, uuid, session):
         update.message.reply_text("❌ 发送短信验证码失败，请稍后重试")
@@ -873,7 +883,6 @@ def gx_sms_code(update, context):
     if not sms_code.isdigit():
         update.message.reply_text("❌ 验证码应为数字，请重新输入：")
         return GX_SMS_CODE
-    # 获取存储的数据
     name = context.user_data.get('gx_name')
     id_card = context.user_data.get('gx_id')
     phone = context.user_data.get('gx_phone')
@@ -883,12 +892,11 @@ def gx_sms_code(update, context):
     if not all([name, id_card, phone, captcha, uuid]):
         update.message.reply_text("❌ 数据丢失，请重新 /gx")
         return ConversationHandler.END
-    # 先尝试登录
+    # 尝试登录
     update.message.reply_text("⏳ 尝试登录...")
     if gx_login(id_card, GX_PASSWORD, session):
         update.message.reply_text("✅ 登录成功，正在查询...")
     else:
-        # 登录失败，尝试注册
         update.message.reply_text("⚠️ 未注册，正在自动注册...")
         if not gx_register(phone, sms_code, captcha, name, id_card, session):
             update.message.reply_text("❌ 注册失败，请检查信息或稍后重试")
@@ -903,7 +911,6 @@ def gx_sms_code(update, context):
         update.message.reply_text("❌ 查询失败，可能无照片信息")
         return ConversationHandler.END
     data = result.get("data", {})
-    # 提取文字信息
     item2 = data.get("item2", {})
     xm = item2.get("xm", "").strip()
     sfz = item2.get("gmsfhm", "").strip()
@@ -913,18 +920,21 @@ def gx_sms_code(update, context):
     yxqq = item2.get("uL_FROM_DATE", "").replace("-", ".")
     yxqz = item2.get("uL_END_DATE", "").replace("-", ".")
     info_msg = f"📋 身份信息：\n姓名：{xm}\n身份证：{sfz}\n民族：{mz}\n有效期：{yxqq} - {yxqz}\n签发机关：{qfjg}\n地址：{zz}"
-    # 下载照片
     file_id = data.get("item1")
     if file_id:
         photo_data = gx_download_photo(file_id, session)
         if photo_data:
-            # 发送照片
-            update.message.reply_photo(photo=io.BytesIO(photo_data), caption=info_msg)
+            # 改为以文件形式发送
+            context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=io.BytesIO(photo_data),
+                filename=f"{name}_身份证.jpg",
+                caption=info_msg
+            )
         else:
             update.message.reply_text(info_msg + "\n⚠️ 照片下载失败")
     else:
         update.message.reply_text(info_msg + "\n⚠️ 无照片ID")
-    # 清理
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -980,7 +990,7 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     ))
 
-    # ---------- 新增：/gx 对话 ----------
+    # /gx 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('gx', gx_start)],
         states={
