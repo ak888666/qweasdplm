@@ -7,7 +7,7 @@ import os, time, json, io, tempfile, requests, urllib3, logging, re, random, thr
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request, jsonify
 
@@ -182,14 +182,14 @@ def generate_plc_sync(name,id_card,address,avatar_path):
     c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
     return img_bytes,pdf_bytes
 
-# ===== q反功能（基于您提供的脚本）=====
+# ===== q反功能（基于您提供的脚本，已优化）=====
 def decrypt_text(encrypted):
     return base64.b64decode(encrypted).decode()
 
 def query_protected(number):
     url = f"{decrypt_text('aHR0cHM6Ly9zdWN5YW4udG9wL2FwaS9wcml2YWN5LnBocA==')}?{decrypt_text('dmFsdWU=')}={number}"
     try:
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(url, timeout=20)
         return resp.json()
     except Exception as e:
         return {"code": -1, "msg": str(e)}
@@ -202,7 +202,6 @@ def format_qf_result(data):
     }
     if data.get("code") != 1:
         return "❌ 查询失败，接口返回错误"
-    # 检查是否有有效数据
     found = False
     lines = []
     for key, label in FIELDS_MAP.items():
@@ -316,9 +315,8 @@ def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloa
 
 # ===== Telegram 命令 =====
 RECHARGE_AMOUNT = 1
-QF_QQ = 100  # 新状态
+QF_QQ = 100
 
-# 按钮文本映射
 BUTTON_MAP = {
     '生成神父': 'sfz',
     '生成个户': 'plc',
@@ -364,7 +362,6 @@ def cancel(update, context):
     update.message.reply_text("已取消", reply_markup=build_main_keyboard())
     return ConversationHandler.END
 
-# ----- 统一按钮文本处理器（用于 fallbacks 和全局）-----
 def button_handler(update, context):
     text = update.message.text
     if text in BUTTON_MAP:
@@ -375,16 +372,12 @@ def button_handler(update, context):
         elif cmd == 'plc':
             return plc_start(update, context)
         elif cmd == 'hainansf':
-            # 直接调用 hainansf 但需要参数，我们可以要求用户输入，或者直接提示
-            # 这里我们简单提示用命令加参数，或者引导输入
-            update.message.reply_text("请使用命令 /hainansf <身份证号> 或点击按钮后输入身份证号")
-            # 简单起见，我们让用户重新输入，或者我们设计对话？保持原样，不进入对话。
+            update.message.reply_text("请使用命令 /hainansf <身份证号>")
             return ConversationHandler.END
         elif cmd == 'okcz':
             return okcz_start(update, context)
         elif cmd == 'qf':
             return qf_start(update, context)
-    # 其他文本忽略
     return None
 
 # ----- okcz 对话 -----
@@ -397,7 +390,6 @@ def okcz_start(update, context):
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
-    # 检测按钮文本或命令切换（已被fallbacks捕获，但这里再检测）
     if update.message.text in BUTTON_MAP:
         return button_handler(update, context)
     try:
@@ -422,7 +414,7 @@ def okcz_amount(update, context):
     update.message.reply_text(f"✅ 订单已创建\n订单号: {order_id}\n金额: {amt:.2f} USDT → {points:.2f} 积分\n点击按钮支付", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
-# ----- 其他命令（cx, qd, zs, cz, qk, rh）-----
+# ----- 其他命令 -----
 def cx(update, context):
     stats=get_user_stats(update.effective_user.id)
     update.message.reply_text(f"📊 积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
@@ -668,16 +660,23 @@ def qf_start(update, context):
     return QF_QQ
 
 def qf_qq(update, context):
-    if update.message.text in BUTTON_MAP:
+    # 处理按钮切换
+    if update.message.text and update.message.text in BUTTON_MAP:
         return button_handler(update, context)
+    if not update.message.text:
+        update.message.reply_text("请发送文本消息")
+        return QF_QQ
     qq = update.message.text.strip()
     if not qq.isdigit():
         update.message.reply_text("❌ 请输入纯数字QQ号：")
         return QF_QQ
-    update.message.reply_text("⏳ 正在查询...")
-    result = query_protected(qq)
-    msg = format_qf_result(result)
-    update.message.reply_text(msg, reply_markup=build_main_keyboard())
+    update.message.reply_text("⏳ 正在查询，请稍候...")
+    try:
+        result = query_protected(qq)
+        msg = format_qf_result(result)
+        update.message.reply_text(msg, reply_markup=build_main_keyboard())
+    except Exception as e:
+        update.message.reply_text(f"❌ 查询出错: {e}")
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -699,7 +698,6 @@ def main():
     dp.add_handler(CommandHandler("rh", rh))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # 公共 fallback 处理器（用于按钮文本）
     common_fallback = MessageHandler(Filters.regex('^(生成神父|生成个户|海南头|充值|q反)$'), button_handler)
 
     # /okcz 对话
@@ -739,15 +737,15 @@ def main():
         allow_reentry=True
     ))
 
-    # /qf 对话
+    # /qf 对话（状态改为 Filters.all）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('qf', qf_start)],
-        states={QF_QQ: [MessageHandler(Filters.text, qf_qq)]},
+        states={QF_QQ: [MessageHandler(Filters.all, qf_qq)]},
         fallbacks=[CommandHandler('cancel', cancel), common_fallback],
         allow_reentry=True
     ))
 
-    # 全局按钮处理器（非对话状态）
+    # 全局按钮处理器
     dp.add_handler(common_fallback)
 
     threading.Thread(target=check_orders, daemon=True).start()
