@@ -286,7 +286,6 @@ def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloa
 RECHARGE_AMOUNT = 1
 
 def start(update, context):
-    # 清理任何残留的对话状态
     context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     update.message.reply_text(
@@ -319,7 +318,6 @@ def cancel(update, context):
 
 # ----- 新命令：/okcz 充值积分 -----
 def okcz_start(update, context):
-    # 切换时清理旧状态
     context.user_data.clear()
     uid=update.effective_user.id
     ensure_user(uid)
@@ -328,22 +326,6 @@ def okcz_start(update, context):
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
-    # 检查是否是命令切换
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     try:
         amt=float(re.sub(r'[^\d.]','',update.message.text))
     except:
@@ -453,41 +435,10 @@ def sfz_start(update,context):
     update.message.reply_text("请输入姓名：")
     return SFZ_NAME
 def sfz_name(update,context):
-    # 检查命令切换
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return SFZ_ID
 def sfz_id(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -496,59 +447,14 @@ def sfz_id(update,context):
     update.message.reply_text("请输入民族：")
     return SFZ_NATION
 def sfz_nation(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     context.user_data['nation']=update.message.text.strip()
     update.message.reply_text("请输入地址：")
     return SFZ_ADDR
 def sfz_address(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     context.user_data['address']=update.message.text.strip()
     update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
     return SFZ_EXPIRY
 def sfz_expiry(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     context.user_data['expiry']=update.message.text.strip()
     update.message.reply_text("请发送本人照片：")
     return SFZ_PHOTO
@@ -585,40 +491,10 @@ def plc_start(update,context):
     update.message.reply_text("请输入姓名：")
     return PLC_NAME
 def plc_name(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return PLC_ID
 def plc_id(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -649,21 +525,6 @@ def plc_addr_confirm_callback(update,context):
         query.edit_message_text("请输入地址：")
         return PLC_ADDR_MANUAL
 def plc_addr_manual(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].lower()
-        if cmd == '/sfz':
-            context.user_data.clear()
-            return sfz_start(update, context)
-        elif cmd == '/plc':
-            context.user_data.clear()
-            return plc_start(update, context)
-        elif cmd == '/okcz':
-            context.user_data.clear()
-            return okcz_start(update, context)
-        else:
-            context.user_data.clear()
-            update.message.reply_text("已取消当前操作，请重新输入命令")
-            return ConversationHandler.END
     addr=update.message.text.strip()
     if not addr:
         update.message.reply_text("地址不能为空")
@@ -717,14 +578,15 @@ def main():
     dp.add_handler(CommandHandler("rh", rh))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # /okcz 充值对话
+    # /okcz 充值对话（允许重新进入）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('okcz', okcz_start)],
         states={RECHARGE_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, okcz_amount)]},
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
     ))
 
-    # /sfz 对话
+    # /sfz 对话（允许重新进入）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -735,10 +597,11 @@ def main():
             SFZ_EXPIRY: [MessageHandler(Filters.text & ~Filters.command, sfz_expiry)],
             SFZ_PHOTO: [MessageHandler(Filters.photo, sfz_photo)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
     ))
 
-    # /plc 对话
+    # /plc 对话（允许重新进入）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -748,7 +611,8 @@ def main():
             PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
             PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
     ))
 
     threading.Thread(target=check_orders, daemon=True).start()
