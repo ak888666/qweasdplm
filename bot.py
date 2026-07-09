@@ -326,6 +326,9 @@ def okcz_start(update, context):
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
+    # 检测命令切换
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     try:
         amt=float(re.sub(r'[^\d.]','',update.message.text))
     except:
@@ -428,17 +431,49 @@ def rh(update, context):
             msg+=f"ID: `{k}`，积分: {v.get('points',0):.2f}\n"
         update.message.reply_text(msg, parse_mode='Markdown')
 
+# ===== 公共命令处理函数 =====
+def _handle_command(update, context):
+    """检测命令并跳转，如果未匹配则取消当前对话"""
+    text = update.message.text.strip()
+    if not text.startswith('/'):
+        return None
+    cmd = text.split()[0].lower()
+    if cmd == '/sfz':
+        context.user_data.clear()
+        return sfz_start(update, context)
+    elif cmd == '/plc':
+        context.user_data.clear()
+        return plc_start(update, context)
+    elif cmd == '/okcz':
+        context.user_data.clear()
+        return okcz_start(update, context)
+    elif cmd == '/cancel':
+        context.user_data.clear()
+        update.message.reply_text("已取消")
+        return ConversationHandler.END
+    else:
+        # 其他命令，取消当前对话
+        context.user_data.clear()
+        update.message.reply_text("已取消当前操作，请重新输入命令")
+        return ConversationHandler.END
+
 # ===== sfz 对话 =====
 SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
 def sfz_start(update,context):
     context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return SFZ_NAME
+
 def sfz_name(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return SFZ_ID
+
 def sfz_id(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -446,21 +481,34 @@ def sfz_id(update,context):
     context.user_data['id_number']=id_card
     update.message.reply_text("请输入民族：")
     return SFZ_NATION
+
 def sfz_nation(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     context.user_data['nation']=update.message.text.strip()
     update.message.reply_text("请输入地址：")
     return SFZ_ADDR
+
 def sfz_address(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     context.user_data['address']=update.message.text.strip()
     update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
     return SFZ_EXPIRY
+
 def sfz_expiry(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     context.user_data['expiry']=update.message.text.strip()
     update.message.reply_text("请发送本人照片：")
     return SFZ_PHOTO
+
 def sfz_photo(update,context):
+    # 处理文本命令（因为此状态使用了 Filters.all）
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     if not update.message.photo:
-        update.message.reply_text("请发送图片")
+        update.message.reply_text("请发送图片（或输入 /cancel 取消）")
         return SFZ_PHOTO
     photo=update.message.photo[-1]
     file=photo.get_file()
@@ -490,11 +538,17 @@ def plc_start(update,context):
     context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return PLC_NAME
+
 def plc_name(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return PLC_ID
+
 def plc_id(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -509,6 +563,7 @@ def plc_id(update,context):
     else:
         update.message.reply_text("请手动输入地址：")
         return PLC_ADDR_MANUAL
+
 def plc_addr_confirm_callback(update,context):
     query=update.callback_query
     query.answer()
@@ -524,7 +579,10 @@ def plc_addr_confirm_callback(update,context):
     else:
         query.edit_message_text("请输入地址：")
         return PLC_ADDR_MANUAL
+
 def plc_addr_manual(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     addr=update.message.text.strip()
     if not addr:
         update.message.reply_text("地址不能为空")
@@ -532,9 +590,13 @@ def plc_addr_manual(update,context):
     context.user_data['address']=addr
     update.message.reply_text("请发送照片")
     return PLC_PHOTO
+
 def plc_photo(update,context):
+    # 处理文本命令（因为此状态使用了 Filters.all）
+    if update.message.text and update.message.text.startswith('/'):
+        return _handle_command(update, context)
     if not update.message.photo:
-        update.message.reply_text("请发送图片")
+        update.message.reply_text("请发送图片（或输入 /cancel 取消）")
         return PLC_PHOTO
     photo=update.message.photo[-1]
     file=photo.get_file()
@@ -581,7 +643,7 @@ def main():
     # /okcz 充值对话（允许重新进入）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('okcz', okcz_start)],
-        states={RECHARGE_AMOUNT: [MessageHandler(Filters.text & ~Filters.command, okcz_amount)]},
+        states={RECHARGE_AMOUNT: [MessageHandler(Filters.text, okcz_amount)]},
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
     ))
@@ -590,12 +652,12 @@ def main():
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
-            SFZ_NAME: [MessageHandler(Filters.text & ~Filters.command, sfz_name)],
-            SFZ_ID: [MessageHandler(Filters.text & ~Filters.command, sfz_id)],
-            SFZ_NATION: [MessageHandler(Filters.text & ~Filters.command, sfz_nation)],
-            SFZ_ADDR: [MessageHandler(Filters.text & ~Filters.command, sfz_address)],
-            SFZ_EXPIRY: [MessageHandler(Filters.text & ~Filters.command, sfz_expiry)],
-            SFZ_PHOTO: [MessageHandler(Filters.photo, sfz_photo)],
+            SFZ_NAME: [MessageHandler(Filters.text, sfz_name)],
+            SFZ_ID: [MessageHandler(Filters.text, sfz_id)],
+            SFZ_NATION: [MessageHandler(Filters.text, sfz_nation)],
+            SFZ_ADDR: [MessageHandler(Filters.text, sfz_address)],
+            SFZ_EXPIRY: [MessageHandler(Filters.text, sfz_expiry)],
+            SFZ_PHOTO: [MessageHandler(Filters.all, sfz_photo)],  # 处理图片和文本命令
         },
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
@@ -605,11 +667,11 @@ def main():
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
-            PLC_NAME: [MessageHandler(Filters.text & ~Filters.command, plc_name)],
-            PLC_ID: [MessageHandler(Filters.text & ~Filters.command, plc_id)],
+            PLC_NAME: [MessageHandler(Filters.text, plc_name)],
+            PLC_ID: [MessageHandler(Filters.text, plc_id)],
             PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
-            PLC_ADDR_MANUAL: [MessageHandler(Filters.text & ~Filters.command, plc_addr_manual)],
-            PLC_PHOTO: [MessageHandler(Filters.photo, plc_photo)],
+            PLC_ADDR_MANUAL: [MessageHandler(Filters.text, plc_addr_manual)],
+            PLC_PHOTO: [MessageHandler(Filters.all, plc_photo)],  # 处理图片和文本命令
         },
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
