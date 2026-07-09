@@ -7,7 +7,7 @@ import os, time, json, io, tempfile, requests, urllib3, logging, re, random, thr
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Updater, CommandHandler, ConversationHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request, jsonify
 
@@ -182,6 +182,38 @@ def generate_plc_sync(name,id_card,address,avatar_path):
     c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
     return img_bytes,pdf_bytes
 
+# ===== q反功能（基于您提供的脚本）=====
+def decrypt_text(encrypted):
+    return base64.b64decode(encrypted).decode()
+
+def query_protected(number):
+    url = f"{decrypt_text('aHR0cHM6Ly9zdWN5YW4udG9wL2FwaS9wcml2YWN5LnBocA==')}?{decrypt_text('dmFsdWU=')}={number}"
+    try:
+        resp = requests.get(url, timeout=15)
+        return resp.json()
+    except Exception as e:
+        return {"code": -1, "msg": str(e)}
+
+def format_qf_result(data):
+    FIELDS_MAP = {
+        "names": "姓名", "nicknames": "昵称", "phone_numbers": "手机号",
+        "id_numbers": "身份证号", "qq_numbers": "QQ号", "wb_numbers": "微博号",
+        "passwords": "密码", "emails": "邮箱", "addresses": "地址"
+    }
+    if data.get("code") != 1:
+        return "❌ 查询失败，接口返回错误"
+    # 检查是否有有效数据
+    found = False
+    lines = []
+    for key, label in FIELDS_MAP.items():
+        val = data.get(key)
+        if val and str(val).strip():
+            lines.append(f"• {label}：{val}")
+            found = True
+    if not found:
+        return "📭 未找到关联信息"
+    return "📋 查询结果：\n" + "\n".join(lines)
+
 # ===== OkayPay =====
 class OkayPay:
     def __init__(self,appid,token,api_url): self.appid=appid; self.token=token; self.api_url=api_url
@@ -284,16 +316,32 @@ def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloa
 
 # ===== Telegram 命令 =====
 RECHARGE_AMOUNT = 1
+QF_QQ = 100  # 新状态
+
+# 按钮文本映射
+BUTTON_MAP = {
+    '生成神父': 'sfz',
+    '生成个户': 'plc',
+    '海南头': 'hainansf',
+    '充值': 'okcz',
+    'q反': 'qf'
+}
+
+def build_main_keyboard():
+    return ReplyKeyboardMarkup([
+        ['生成神父', '生成个户'],
+        ['海南头', '充值', 'q反']
+    ], resize_keyboard=True)
 
 def start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
-    update.message.reply_text(
-        f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
-        f"命令：\n/hainansf 身份证 → 海南大头\n/sfz → 生成双面身份证\n/plc → PLC个户\n/okcz → ok自动充值积分\n/cx → 查询余额\n"
-        f"/qd → 每日签到\n/zs 管理员赠送\n"
-        f"/rh → 用户列表\n/cz 重置签到\n/qk → 清空所有签到\n/cancel → 取消"
-    )
+    msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
+           f"点击下方按钮使用功能，或输入命令：\n"
+           f"/hainansf 身份证 → 海南头\n/sfz → 生成双面身份证\n/plc → PLC个户\n/okcz → 充值积分\n"
+           f"/qf → QQ反查\n/cx → 查询余额\n/qd → 每日签到\n/zs 管理员赠送\n"
+           f"/rh → 用户列表\n/cz 重置签到\n/qk → 清空所有签到\n/cancel → 取消")
+    update.message.reply_text(msg, reply_markup=build_main_keyboard())
 
 def hainansf(update, context):
     args=context.args
@@ -313,22 +361,45 @@ def hainansf(update, context):
 
 def cancel(update, context):
     context.user_data.clear()
-    update.message.reply_text("已取消")
+    update.message.reply_text("已取消", reply_markup=build_main_keyboard())
     return ConversationHandler.END
 
-# ----- 新命令：/okcz 充值积分 -----
+# ----- 统一按钮文本处理器（用于 fallbacks 和全局）-----
+def button_handler(update, context):
+    text = update.message.text
+    if text in BUTTON_MAP:
+        cmd = BUTTON_MAP[text]
+        context.user_data.clear()
+        if cmd == 'sfz':
+            return sfz_start(update, context)
+        elif cmd == 'plc':
+            return plc_start(update, context)
+        elif cmd == 'hainansf':
+            # 直接调用 hainansf 但需要参数，我们可以要求用户输入，或者直接提示
+            # 这里我们简单提示用命令加参数，或者引导输入
+            update.message.reply_text("请使用命令 /hainansf <身份证号> 或点击按钮后输入身份证号")
+            # 简单起见，我们让用户重新输入，或者我们设计对话？保持原样，不进入对话。
+            return ConversationHandler.END
+        elif cmd == 'okcz':
+            return okcz_start(update, context)
+        elif cmd == 'qf':
+            return qf_start(update, context)
+    # 其他文本忽略
+    return None
+
+# ----- okcz 对话 -----
 def okcz_start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id
     ensure_user(uid)
     stats=get_user_stats(uid)
-    update.message.reply_text(f"💰 当前积分 {stats['points']:.2f}\n请输入 USDT 金额：")
+    update.message.reply_text(f"💰 当前积分 {stats['points']:.2f}\n请输入 USDT 金额：", reply_markup=build_main_keyboard())
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
-    # 检测命令切换
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    # 检测按钮文本或命令切换（已被fallbacks捕获，但这里再检测）
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     try:
         amt=float(re.sub(r'[^\d.]','',update.message.text))
     except:
@@ -337,6 +408,7 @@ def okcz_amount(update, context):
     if amt<=0:
         update.message.reply_text("金额需大于0")
         return RECHARGE_AMOUNT
+    uid=update.effective_user.id
     points=amt*POINTS_RATE
     unique_id=f"ORDER_{int(time.time())}_{uid}_{random.randint(1000,9999)}"
     resp=client.pay_link(amt, unique_id)
@@ -350,12 +422,11 @@ def okcz_amount(update, context):
     update.message.reply_text(f"✅ 订单已创建\n订单号: {order_id}\n金额: {amt:.2f} USDT → {points:.2f} 积分\n点击按钮支付", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
-# ----- 新命令：/cx 查询余额 -----
+# ----- 其他命令（cx, qd, zs, cz, qk, rh）-----
 def cx(update, context):
     stats=get_user_stats(update.effective_user.id)
     update.message.reply_text(f"📊 积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
 
-# ----- 新命令：/qd 每日签到 -----
 def qd(update, context):
     uid=update.effective_user.id
     ensure_user(uid)
@@ -369,7 +440,6 @@ def qd(update, context):
     stats=get_user_stats(uid)
     update.message.reply_text(f"✅ 签到成功！+0.05 积分，当前 {stats['points']:.2f}")
 
-# ----- 新命令：/zs 管理员赠送 -----
 def zs(update, context):
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
@@ -377,7 +447,7 @@ def zs(update, context):
         return
     args=context.args
     if len(args)<2:
-        update.message.reply_text("❌ /zs <用户ID> <积分> [备注]")
+        update.message.reply_text("❌ /zs <用户ID> <积分>")
         return
     try:
         target_id=int(args[0])
@@ -391,7 +461,6 @@ def zs(update, context):
     stats=get_user_stats(target_id)
     update.message.reply_text(f"✅ 已向 {target_id} 赠送 {amount:.2f} 积分，当前 {stats['points']:.2f}")
 
-# ----- 新命令：/cz 重置签到 -----
 def cz(update, context):
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
@@ -408,7 +477,6 @@ def cz(update, context):
     save_users()
     update.message.reply_text(f"✅ 已重置 {target_id} 签到")
 
-# ----- 新命令：/qk 清空所有签到 -----
 def qk(update, context):
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
@@ -418,7 +486,6 @@ def qk(update, context):
     save_users()
     update.message.reply_text("✅ 已清空所有签到日期")
 
-# ----- 新命令：/rh 用户列表 -----
 def rh(update, context):
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
@@ -431,49 +498,23 @@ def rh(update, context):
             msg+=f"ID: `{k}`，积分: {v.get('points',0):.2f}\n"
         update.message.reply_text(msg, parse_mode='Markdown')
 
-# ===== 公共命令处理函数 =====
-def _handle_command(update, context):
-    """检测命令并跳转，如果未匹配则取消当前对话"""
-    text = update.message.text.strip()
-    if not text.startswith('/'):
-        return None
-    cmd = text.split()[0].lower()
-    if cmd == '/sfz':
-        context.user_data.clear()
-        return sfz_start(update, context)
-    elif cmd == '/plc':
-        context.user_data.clear()
-        return plc_start(update, context)
-    elif cmd == '/okcz':
-        context.user_data.clear()
-        return okcz_start(update, context)
-    elif cmd == '/cancel':
-        context.user_data.clear()
-        update.message.reply_text("已取消")
-        return ConversationHandler.END
-    else:
-        # 其他命令，取消当前对话
-        context.user_data.clear()
-        update.message.reply_text("已取消当前操作，请重新输入命令")
-        return ConversationHandler.END
-
 # ===== sfz 对话 =====
 SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
 def sfz_start(update,context):
     context.user_data.clear()
-    update.message.reply_text("请输入姓名：")
+    update.message.reply_text("请输入姓名：", reply_markup=build_main_keyboard())
     return SFZ_NAME
 
 def sfz_name(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return SFZ_ID
 
 def sfz_id(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -483,32 +524,31 @@ def sfz_id(update,context):
     return SFZ_NATION
 
 def sfz_nation(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     context.user_data['nation']=update.message.text.strip()
     update.message.reply_text("请输入地址：")
     return SFZ_ADDR
 
 def sfz_address(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     context.user_data['address']=update.message.text.strip()
     update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
     return SFZ_EXPIRY
 
 def sfz_expiry(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     context.user_data['expiry']=update.message.text.strip()
     update.message.reply_text("请发送本人照片：")
     return SFZ_PHOTO
 
 def sfz_photo(update,context):
-    # 处理文本命令（因为此状态使用了 Filters.all）
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text and update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     if not update.message.photo:
-        update.message.reply_text("请发送图片（或输入 /cancel 取消）")
+        update.message.reply_text("请发送图片（或点击按钮取消）")
         return SFZ_PHOTO
     photo=update.message.photo[-1]
     file=photo.get_file()
@@ -536,19 +576,19 @@ def sfz_photo(update,context):
 PLC_NAME,PLC_ID,PLC_ADDR_CONFIRM,PLC_ADDR_MANUAL,PLC_PHOTO=range(10,15)
 def plc_start(update,context):
     context.user_data.clear()
-    update.message.reply_text("请输入姓名：")
+    update.message.reply_text("请输入姓名：", reply_markup=build_main_keyboard())
     return PLC_NAME
 
 def plc_name(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return PLC_ID
 
 def plc_id(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -581,8 +621,8 @@ def plc_addr_confirm_callback(update,context):
         return PLC_ADDR_MANUAL
 
 def plc_addr_manual(update,context):
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     addr=update.message.text.strip()
     if not addr:
         update.message.reply_text("地址不能为空")
@@ -592,11 +632,10 @@ def plc_addr_manual(update,context):
     return PLC_PHOTO
 
 def plc_photo(update,context):
-    # 处理文本命令（因为此状态使用了 Filters.all）
-    if update.message.text and update.message.text.startswith('/'):
-        return _handle_command(update, context)
+    if update.message.text and update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
     if not update.message.photo:
-        update.message.reply_text("请发送图片（或输入 /cancel 取消）")
+        update.message.reply_text("请发送图片（或点击按钮取消）")
         return PLC_PHOTO
     photo=update.message.photo[-1]
     file=photo.get_file()
@@ -622,6 +661,26 @@ def plc_photo(update,context):
         context.user_data.clear()
     return ConversationHandler.END
 
+# ===== q反 对话 =====
+def qf_start(update, context):
+    context.user_data.clear()
+    update.message.reply_text("请输入要查询的QQ号：", reply_markup=build_main_keyboard())
+    return QF_QQ
+
+def qf_qq(update, context):
+    if update.message.text in BUTTON_MAP:
+        return button_handler(update, context)
+    qq = update.message.text.strip()
+    if not qq.isdigit():
+        update.message.reply_text("❌ 请输入纯数字QQ号：")
+        return QF_QQ
+    update.message.reply_text("⏳ 正在查询...")
+    result = query_protected(qq)
+    msg = format_qf_result(result)
+    update.message.reply_text(msg, reply_markup=build_main_keyboard())
+    context.user_data.clear()
+    return ConversationHandler.END
+
 # ===== 主程序 =====
 def main():
     global bot
@@ -629,7 +688,7 @@ def main():
     bot=updater.bot
     dp=updater.dispatcher
 
-    # 注册所有命令
+    # 注册命令
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("cx", cx))
@@ -640,15 +699,18 @@ def main():
     dp.add_handler(CommandHandler("rh", rh))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # /okcz 充值对话（允许重新进入）
+    # 公共 fallback 处理器（用于按钮文本）
+    common_fallback = MessageHandler(Filters.regex('^(生成神父|生成个户|海南头|充值|q反)$'), button_handler)
+
+    # /okcz 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('okcz', okcz_start)],
         states={RECHARGE_AMOUNT: [MessageHandler(Filters.text, okcz_amount)]},
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel), common_fallback],
         allow_reentry=True
     ))
 
-    # /sfz 对话（允许重新进入）
+    # /sfz 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -657,13 +719,13 @@ def main():
             SFZ_NATION: [MessageHandler(Filters.text, sfz_nation)],
             SFZ_ADDR: [MessageHandler(Filters.text, sfz_address)],
             SFZ_EXPIRY: [MessageHandler(Filters.text, sfz_expiry)],
-            SFZ_PHOTO: [MessageHandler(Filters.all, sfz_photo)],  # 处理图片和文本命令
+            SFZ_PHOTO: [MessageHandler(Filters.all, sfz_photo)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel), common_fallback],
         allow_reentry=True
     ))
 
-    # /plc 对话（允许重新进入）
+    # /plc 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -671,11 +733,22 @@ def main():
             PLC_ID: [MessageHandler(Filters.text, plc_id)],
             PLC_ADDR_CONFIRM: [CallbackQueryHandler(plc_addr_confirm_callback, pattern='^(plc_addr_yes|plc_addr_no)$')],
             PLC_ADDR_MANUAL: [MessageHandler(Filters.text, plc_addr_manual)],
-            PLC_PHOTO: [MessageHandler(Filters.all, plc_photo)],  # 处理图片和文本命令
+            PLC_PHOTO: [MessageHandler(Filters.all, plc_photo)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel), common_fallback],
         allow_reentry=True
     ))
+
+    # /qf 对话
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('qf', qf_start)],
+        states={QF_QQ: [MessageHandler(Filters.text, qf_qq)]},
+        fallbacks=[CommandHandler('cancel', cancel), common_fallback],
+        allow_reentry=True
+    ))
+
+    # 全局按钮处理器（非对话状态）
+    dp.add_handler(common_fallback)
 
     threading.Thread(target=check_orders, daemon=True).start()
     threading.Thread(target=run_flask, daemon=True).start()
