@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger('MergedBot')
 
 # ===== 配置 =====
-BOT_TOKEN = os.environ.get('BOT_TOKEN') or "你的BOT_TOKEN"
+BOT_TOKEN = os.environ.get('BOT_TOKEN') or "5849383582:AAHCJvXTUGUFv9iFjkSaRMkQpLh838fdN1M"
 BASE_COOKIES = {
     "cna": os.environ.get('CNA') or "REPLACE_CNA_HERE",
     "JSESSIONID": os.environ.get('JSESSIONID') or "REPLACE_JSESSIONID_HERE",
