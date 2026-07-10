@@ -330,7 +330,7 @@ def start(update, context):
            f"/hainansf 身份证号 → 海南大头贴（需参数）\n"
            f"/bq → 身份证号码补全（生成所有可能号码）\n"
            f"/okcz → USDT充值积分\n"
-           f"/qf → QQ反查\n"
+           f"/qf → QQ反查历史\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
            f"/zs 用户ID 积分 → 管理员赠送积分\n"
