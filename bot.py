@@ -344,19 +344,22 @@ YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
 def start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
-    msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
+    msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n"
+           f"🆔 ID：{uid}\n"
+           f"💎 积分：{stats['points']:.2f}\n"
+           f"🌟 每日签到得0.05分\n\n"
            f"可用命令：\n"
            f"/sfz → 生成双面身份证\n"
            f"/plc → 生成PLC个户\n"
            f"/hainansf 身份证号（海南头）\n"
            f"/bq → 身份证号补全（生成号码）\n"
-           f"/2ys → 二要素核实0.05积分）\n"
+           f"/2ys → 二要素核实（0.05积分）\n"
            f"/qf → QQ反查历史\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
-           f"/zs 管理员赠送积分\n"
-           f"/cancel → 取消当前操作"
+           f"/zs → 管理员赠送积分"
+          )
     update.message.reply_text(msg)
 
 def hainansf(update, context):
