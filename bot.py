@@ -356,6 +356,7 @@ def start(update, context):
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
            f"/zs 管理员赠送积分\n"
+           f"/cancel → 取消当前操作"
     update.message.reply_text(msg)
 
 def hainansf(update, context):
