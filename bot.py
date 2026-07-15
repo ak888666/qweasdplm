@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（新增 /2ys 身份验证，消耗0.05积分）=====")
+print("===== Bot 精简稳定版（新增 /2ys，对话可被新命令打断）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -44,22 +44,18 @@ USERS_FILE = "users.json"
 USERS_BACKUP = "users.json.bak"
 
 def load_users():
-    """加载用户数据，若主文件损坏则尝试从备份恢复"""
     global users
     try:
         with open(USERS_FILE, "r") as f:
             users = json.load(f)
-        # 如果加载成功但数据不是字典，则重置
         if not isinstance(users, dict):
             users = {}
     except (FileNotFoundError, json.JSONDecodeError):
-        # 主文件不存在或损坏，尝试从备份恢复
         try:
             with open(USERS_BACKUP, "r") as f:
                 users = json.load(f)
             if not isinstance(users, dict):
                 users = {}
-            # 恢复后立即保存为主文件
             with open(USERS_FILE, "w") as f:
                 json.dump(users, f, indent=2)
             print("✅ 已从备份恢复用户数据")
@@ -70,10 +66,8 @@ def load_users():
 load_users()
 
 def save_users():
-    """保存用户数据，同时创建备份"""
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
-    # 同步备份
     with open(USERS_BACKUP, "w") as f:
         json.dump(users, f, indent=2)
 
@@ -348,24 +342,25 @@ BQ_NAME, BQ_TEMPLATE, BQ_SEX = range(101, 104)   # /bq 对话状态
 YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
 
 def start(update, context):
-    context.user_data.clear()
+    context.user_data.clear()   # 新命令自动终止旧对话
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
            f"可用命令：\n"
-           f"/sfz → 生成双面身份证\n"
+           f"/sfz → 生成双面身份\n"
            f"/plc → 生成PLC个户身份证\n"
-           f"/hainansf+空格+身份证号→海南头\n"
-           f"/bq → 身份证号生成\n"
-           f"/2ys → 二要素核验 0.05积分\n"
+           f"/hainansf 身份证号 → 海南大头\n"
+           f"/bq → 补全生成身份证号\n"
+           f"/2ys → 二要素核验0.05积分\n"
            f"/qf → QQ反查历史\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
-           f"/zs 管理员送积分\n"
+           f"/zs 管理员赠送积分\n"
            f"/cancel → 取消当前操作")
     update.message.reply_text(msg)
 
 def hainansf(update, context):
+    context.user_data.clear()   # 清除旧对话
     args=context.args
     if not args:
         update.message.reply_text("❌ 格式错误\n正确格式：/hainansf <身份证号>")
@@ -388,7 +383,7 @@ def cancel(update, context):
 
 # ----- okcz 对话 -----
 def okcz_start(update, context):
-    context.user_data.clear()
+    context.user_data.clear()   # 清除旧对话
     uid=update.effective_user.id
     ensure_user(uid)
     stats=get_user_stats(uid)
@@ -420,10 +415,13 @@ def okcz_amount(update, context):
 
 # ----- 其他简单命令 -----
 def cx(update, context):
+    # 无需清除状态，但为了保险也清除
+    context.user_data.clear()
     stats=get_user_stats(update.effective_user.id)
     update.message.reply_text(f"📊 积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
 
 def qd(update, context):
+    context.user_data.clear()
     uid=update.effective_user.id
     ensure_user(uid)
     today=time.strftime('%Y-%m-%d')
@@ -437,6 +435,7 @@ def qd(update, context):
     update.message.reply_text(f"✅ 签到成功！+0.05 积分，当前 {stats['points']:.2f}")
 
 def zs(update, context):
+    context.user_data.clear()
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         update.message.reply_text("❌ 无权限")
@@ -458,6 +457,7 @@ def zs(update, context):
     update.message.reply_text(f"✅ 已向 {target_id} 赠送 {amount:.2f} 积分，当前 {stats['points']:.2f}")
 
 def cz(update, context):
+    context.user_data.clear()
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         return
@@ -474,6 +474,7 @@ def cz(update, context):
     update.message.reply_text(f"✅ 已重置 {target_id} 签到")
 
 def qk(update, context):
+    context.user_data.clear()
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         return
@@ -483,6 +484,7 @@ def qk(update, context):
     update.message.reply_text("✅ 已清空所有签到日期")
 
 def rh(update, context):
+    context.user_data.clear()
     uid=update.effective_user.id
     if uid not in ADMIN_IDS:
         return
@@ -497,7 +499,7 @@ def rh(update, context):
 # ===== sfz 对话 =====
 SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
 def sfz_start(update,context):
-    context.user_data.clear()
+    context.user_data.clear()   # 清除旧对话
     update.message.reply_text("请输入姓名：")
     return SFZ_NAME
 
@@ -559,7 +561,7 @@ def sfz_photo(update,context):
 # ===== plc 对话 =====
 PLC_NAME,PLC_ID,PLC_ADDR_CONFIRM,PLC_ADDR_MANUAL,PLC_PHOTO=range(10,15)
 def plc_start(update,context):
-    context.user_data.clear()
+    context.user_data.clear()   # 清除旧对话
     update.message.reply_text("请输入姓名：")
     return PLC_NAME
 
@@ -639,8 +641,8 @@ def plc_photo(update,context):
 
 # ===== q反 对话 =====
 def qf_start(update, context):
-    context.user_data.clear()
-    update.message.reply_text("请输入QQ号：")
+    context.user_data.clear()   # 清除旧对话
+    update.message.reply_text("请输入要查询的QQ号：")
     return QF_QQ
 
 def qf_qq(update, context):
@@ -663,7 +665,7 @@ def qf_qq(update, context):
 
 # ===== /bq 补全身份证 =====
 def bq_start(update, context):
-    context.user_data.clear()
+    context.user_data.clear()   # 清除旧对话
     update.message.reply_text("请输入姓名：")
     return BQ_NAME
 
@@ -762,7 +764,7 @@ def generate_bq_result(update, context):
 
 # ===== /2ys 身份验证（消耗0.05积分） =====
 def ys_start(update, context):
-    context.user_data.clear()
+    context.user_data.clear()   # 清除旧对话
     update.message.reply_text("请输入姓名：")
     return YS_NAME
 
@@ -790,7 +792,6 @@ def ys_id(update, context):
         context.user_data.clear()
         return ConversationHandler.END
 
-    # 扣除积分（先扣，无论查询结果如何）
     users[str(uid)]['points'] = stats['points'] - cost
     save_users()
     update.message.reply_text(f"⏳ 正在校验（已扣除 {cost} 积分），请稍候...")
