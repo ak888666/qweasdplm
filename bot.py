@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（新增 /2ys，对话可被新命令打断）=====")
+print("===== Bot 精简稳定版（对话可被命令打断）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -342,25 +342,24 @@ BQ_NAME, BQ_TEMPLATE, BQ_SEX = range(101, 104)   # /bq 对话状态
 YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
 
 def start(update, context):
-    context.user_data.clear()   # 新命令自动终止旧对话
+    context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
            f"可用命令：\n"
-           f"/sfz → 生成双面身份\n"
-           f"/plc → 生成PLC个户身份证\n"
-           f"/hainansf 身份证号 → 海南大头\n"
-           f"/bq → 补全生成身份证号\n"
-           f"/2ys → 二要素核验0.05积分\n"
+           f"/sfz → 生成双面身份证\n"
+           f"/plc → 生成PLC个户\n"
+           f"/hainansf 身份证号（海南头）\n"
+           f"/bq → 身份证号补全（生成号码）\n"
+           f"/2ys → 二要素核实0.05积分）\n"
            f"/qf → QQ反查历史\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
            f"/zs 管理员赠送积分\n"
-           f"/cancel → 取消当前操作")
     update.message.reply_text(msg)
 
 def hainansf(update, context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     args=context.args
     if not args:
         update.message.reply_text("❌ 格式错误\n正确格式：/hainansf <身份证号>")
@@ -383,7 +382,7 @@ def cancel(update, context):
 
 # ----- okcz 对话 -----
 def okcz_start(update, context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     uid=update.effective_user.id
     ensure_user(uid)
     stats=get_user_stats(uid)
@@ -391,6 +390,12 @@ def okcz_start(update, context):
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
+    # 检测是否为命令（以/开头），若是则取消并结束
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
+
     try:
         amt=float(re.sub(r'[^\d.]','',update.message.text))
     except:
@@ -415,7 +420,6 @@ def okcz_amount(update, context):
 
 # ----- 其他简单命令 -----
 def cx(update, context):
-    # 无需清除状态，但为了保险也清除
     context.user_data.clear()
     stats=get_user_stats(update.effective_user.id)
     update.message.reply_text(f"📊 积分: {stats['points']:.2f}\n累计充值: {stats['total_recharge']:.2f} USDT")
@@ -499,16 +503,24 @@ def rh(update, context):
 # ===== sfz 对话 =====
 SFZ_NAME,SFZ_ID,SFZ_NATION,SFZ_ADDR,SFZ_EXPIRY,SFZ_PHOTO=range(6)
 def sfz_start(update,context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return SFZ_NAME
 
 def sfz_name(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return SFZ_ID
 
 def sfz_id(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -518,21 +530,37 @@ def sfz_id(update,context):
     return SFZ_NATION
 
 def sfz_nation(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     context.user_data['nation']=update.message.text.strip()
     update.message.reply_text("请输入地址：")
     return SFZ_ADDR
 
 def sfz_address(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     context.user_data['address']=update.message.text.strip()
     update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
     return SFZ_EXPIRY
 
 def sfz_expiry(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     context.user_data['expiry']=update.message.text.strip()
     update.message.reply_text("请发送本人照片：")
     return SFZ_PHOTO
 
 def sfz_photo(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     if not update.message.photo:
         update.message.reply_text("请发送图片")
         return SFZ_PHOTO
@@ -561,16 +589,24 @@ def sfz_photo(update,context):
 # ===== plc 对话 =====
 PLC_NAME,PLC_ID,PLC_ADDR_CONFIRM,PLC_ADDR_MANUAL,PLC_PHOTO=range(10,15)
 def plc_start(update,context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return PLC_NAME
 
 def plc_name(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
     return PLC_ID
 
 def plc_id(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("格式错误，重新输入：")
@@ -603,6 +639,10 @@ def plc_addr_confirm_callback(update,context):
         return PLC_ADDR_MANUAL
 
 def plc_addr_manual(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     addr=update.message.text.strip()
     if not addr:
         update.message.reply_text("地址不能为空")
@@ -612,6 +652,10 @@ def plc_addr_manual(update,context):
     return PLC_PHOTO
 
 def plc_photo(update,context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     if not update.message.photo:
         update.message.reply_text("请发送图片")
         return PLC_PHOTO
@@ -641,11 +685,15 @@ def plc_photo(update,context):
 
 # ===== q反 对话 =====
 def qf_start(update, context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     update.message.reply_text("请输入要查询的QQ号：")
     return QF_QQ
 
 def qf_qq(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     if not update.message.text:
         update.message.reply_text("请发送文本消息")
         return QF_QQ
@@ -665,11 +713,15 @@ def qf_qq(update, context):
 
 # ===== /bq 补全身份证 =====
 def bq_start(update, context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return BQ_NAME
 
 def bq_name(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     name = update.message.text.strip()
     if not name:
         update.message.reply_text("姓名不能为空，请重新输入：")
@@ -679,6 +731,10 @@ def bq_name(update, context):
     return BQ_TEMPLATE
 
 def bq_template(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     template = update.message.text.strip().upper()
     if len(template) != 18:
         update.message.reply_text("❌ 必须输入18位模板，请重新输入：")
@@ -695,6 +751,10 @@ def bq_template(update, context):
         return generate_bq_result(update, context)
 
 def bq_sex(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     sex_input = update.message.text.strip()
     sex_filter = None
     if sex_input == "男":
@@ -764,11 +824,15 @@ def generate_bq_result(update, context):
 
 # ===== /2ys 身份验证（消耗0.05积分） =====
 def ys_start(update, context):
-    context.user_data.clear()   # 清除旧对话
+    context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return YS_NAME
 
 def ys_name(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     name = update.message.text.strip()
     if not name:
         update.message.reply_text("姓名不能为空，请重新输入：")
@@ -778,6 +842,10 @@ def ys_name(update, context):
     return YS_ID
 
 def ys_id(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        return ConversationHandler.END
     id_card = update.message.text.strip().upper()
     if len(id_card) != 18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
         update.message.reply_text("身份证号格式错误（须为18位数字或末位X），请重新输入：")
