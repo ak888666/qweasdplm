@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（无按钮，新增/bq补全）=====")
+print("===== Bot 精简稳定版（新增 /2ys 身份验证，消耗0.05积分）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -39,16 +39,42 @@ CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
 ADMIN_IDS = [6040143940]  # 你的管理员ID
 
-# ===== JSON存储 =====
+# ===== JSON存储（带备份恢复） =====
 USERS_FILE = "users.json"
-try:
-    with open(USERS_FILE, "r") as f:
-        users = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    users = {}
+USERS_BACKUP = "users.json.bak"
+
+def load_users():
+    """加载用户数据，若主文件损坏则尝试从备份恢复"""
+    global users
+    try:
+        with open(USERS_FILE, "r") as f:
+            users = json.load(f)
+        # 如果加载成功但数据不是字典，则重置
+        if not isinstance(users, dict):
+            users = {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 主文件不存在或损坏，尝试从备份恢复
+        try:
+            with open(USERS_BACKUP, "r") as f:
+                users = json.load(f)
+            if not isinstance(users, dict):
+                users = {}
+            # 恢复后立即保存为主文件
+            with open(USERS_FILE, "w") as f:
+                json.dump(users, f, indent=2)
+            print("✅ 已从备份恢复用户数据")
+        except (FileNotFoundError, json.JSONDecodeError):
+            users = {}
+            print("⚠️ 未找到有效用户数据，创建新文件")
+
+load_users()
 
 def save_users():
+    """保存用户数据，同时创建备份"""
     with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    # 同步备份
+    with open(USERS_BACKUP, "w") as f:
         json.dump(users, f, indent=2)
 
 def ensure_user(user_id):
@@ -61,7 +87,7 @@ def get_user_stats(user_id):
     d = users[str(user_id)]
     return {'points': d.get('points',0.0), 'total_recharge': d.get('total_recharge',0.0), 'last_sign_date': d.get('last_sign_date','')}
 
-# ===== 字体缓存（优化响应速度）=====
+# ===== 字体缓存 =====
 _FONT_CACHE = {}
 def get_font(font_path, size):
     key = (font_path, size)
@@ -319,24 +345,23 @@ def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloa
 RECHARGE_AMOUNT = 1
 QF_QQ = 100
 BQ_NAME, BQ_TEMPLATE, BQ_SEX = range(101, 104)   # /bq 对话状态
+YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
 
 def start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
     msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n🆔 ID：{uid}\n💎 积分：{stats['points']:.2f}\n🌟 每日签到得0.05分\n\n"
            f"可用命令：\n"
-           f"/sfz → 生成双面身份证（对话式）\n"
-           f"/plc → 生成PLC个户身份证（对话式）\n"
-           f"/hainansf 身份证号 → 海南大头贴（需参数）\n"
-           f"/bq → 身份证号码补全（生成所有可能号码）\n"
-           f"/okcz → USDT充值积分\n"
+           f"/sfz → 生成双面身份证\n"
+           f"/plc → 生成PLC个户身份证\n"
+           f"/hainansf+空格+身份证号→海南头\n"
+           f"/bq → 身份证号生成\n"
+           f"/2ys → 二要素核验 0.05积分\n"
            f"/qf → QQ反查历史\n"
+           f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
-           f"/zs 用户ID 积分 → 管理员赠送积分\n"
-           f"/cz 用户ID → 重置签到\n"
-           f"/qk → 清空所有签到\n"
-           f"/rh → 用户列表\n"
+           f"/zs 管理员送积分\n"
            f"/cancel → 取消当前操作")
     update.message.reply_text(msg)
 
@@ -615,7 +640,7 @@ def plc_photo(update,context):
 # ===== q反 对话 =====
 def qf_start(update, context):
     context.user_data.clear()
-    update.message.reply_text("请输入要查询的QQ号：")
+    update.message.reply_text("请输入QQ号：")
     return QF_QQ
 
 def qf_qq(update, context):
@@ -636,7 +661,7 @@ def qf_qq(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== 新增 /bq 补全身份证（仅生成号码列表） =====
+# ===== /bq 补全身份证 =====
 def bq_start(update, context):
     context.user_data.clear()
     update.message.reply_text("请输入姓名：")
@@ -656,18 +681,15 @@ def bq_template(update, context):
     if len(template) != 18:
         update.message.reply_text("❌ 必须输入18位模板，请重新输入：")
         return BQ_TEMPLATE
-    # 检查未知位
     unknown_positions = [i for i, c in enumerate(template) if c == 'X']
     if not unknown_positions:
         update.message.reply_text("❌ 模板里没有标记未知位 x，请重新输入：")
         return BQ_TEMPLATE
     context.user_data['bq_template'] = template
-    # 检查第17位（索引16）是否未知，如果是，询问性别
     if 16 in unknown_positions:
         update.message.reply_text("请指定性别（输入 男 / 女 / 直接回复 不限 或 回车跳过）：")
         return BQ_SEX
     else:
-        # 性别不影响，直接生成
         return generate_bq_result(update, context)
 
 def bq_sex(update, context):
@@ -677,7 +699,6 @@ def bq_sex(update, context):
         sex_filter = ["1","3","5","7","9"]
     elif sex_input == "女":
         sex_filter = ["0","2","4","6","8"]
-    # 其他情况视为不限
     context.user_data['bq_sex_filter'] = sex_filter
     return generate_bq_result(update, context)
 
@@ -689,10 +710,9 @@ def generate_bq_result(update, context):
     fixed_part = list(template)
     unknown_positions = [i for i, c in enumerate(template) if c == 'X']
     
-    # 构建每个未知位的候选字符
     char_pool = []
     for i in unknown_positions:
-        if i == 0:   # 第一位不能为0
+        if i == 0:
             char_pool.append(list("123456789"))
         elif i == 16 and sex_filter is not None:
             char_pool.append(sex_filter)
@@ -703,7 +723,6 @@ def generate_bq_result(update, context):
     ID_CHECK_CODE = ['1','0','X','9','8','7','6','5','4','3','2']
     
     valid_ids = []
-    # 生成所有组合
     for parts in itertools.product(*char_pool):
         temp_id = fixed_part.copy()
         for idx, pos in enumerate(unknown_positions):
@@ -722,13 +741,11 @@ def generate_bq_result(update, context):
         full_id = pre17 + check_code
         valid_ids.append(full_id)
     
-    # 去重
     valid_ids = list(dict.fromkeys(valid_ids))
     if not valid_ids:
         update.message.reply_text("❌ 未生成任何有效身份证，请检查模板。")
         return ConversationHandler.END
     
-    # 生成文本文件
     tmp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
     tmp_file.write('\n'.join(valid_ids))
     tmp_file.close()
@@ -740,6 +757,90 @@ def generate_bq_result(update, context):
             caption=f"✅ 共生成 {len(valid_ids)} 个身份证号（姓名：{name}）"
         )
     os.remove(tmp_file.name)
+    context.user_data.clear()
+    return ConversationHandler.END
+
+# ===== /2ys 身份验证（消耗0.05积分） =====
+def ys_start(update, context):
+    context.user_data.clear()
+    update.message.reply_text("请输入姓名：")
+    return YS_NAME
+
+def ys_name(update, context):
+    name = update.message.text.strip()
+    if not name:
+        update.message.reply_text("姓名不能为空，请重新输入：")
+        return YS_NAME
+    context.user_data['ys_name'] = name
+    update.message.reply_text("请输入18位身份证号：")
+    return YS_ID
+
+def ys_id(update, context):
+    id_card = update.message.text.strip().upper()
+    if len(id_card) != 18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
+        update.message.reply_text("身份证号格式错误（须为18位数字或末位X），请重新输入：")
+        return YS_ID
+
+    uid = update.effective_user.id
+    ensure_user(uid)
+    stats = get_user_stats(uid)
+    cost = 0.05
+    if stats['points'] < cost:
+        update.message.reply_text(f"❌ 积分不足，需要 {cost} 积分，当前 {stats['points']:.2f}")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    # 扣除积分（先扣，无论查询结果如何）
+    users[str(uid)]['points'] = stats['points'] - cost
+    save_users()
+    update.message.reply_text(f"⏳ 正在校验（已扣除 {cost} 积分），请稍候...")
+
+    name = context.user_data.get('ys_name')
+    if not name:
+        update.message.reply_text("姓名丢失，请重新 /2ys")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    try:
+        url = "https://www.bequicker.cn/apih5/product/applyCredit"
+        headers = {
+            "Host": "www.bequicker.cn",
+            "Connection": "keep-alive",
+            "sec-ch-ua-platform": "\"Android\"",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13; PFTM20 Build/TP1A.220905.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/146.0.7680.178 Mobile Safari/537.36 XWEB/1460217 MMWEBSDK/20260502 MMWEBID/2034 REV/7e9754e50bfa30f9b448d54ced300fb52a4eefca MicroMessenger/8.0.74.3120(0x28004A7A) WeChat/arm64 Weixin NetType/4G Language/zh_CN ABI/arm64",
+            "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Android WebView\";v=\"146\"",
+            "content-type": "application/json",
+            "sec-ch-ua-mobile": "?1",
+            "Accept": "*/*",
+            "Origin": "https://cms.bequicker.cn",
+            "X-Requested-With": "com.tencent.mm",
+            "Sec-Fetch-Site": "same-site",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Dest": "empty",
+            "Referer": "https://cms.bequicker.cn/",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        payload = {
+            "type": 1,
+            "tgw_id": "JN2ZBL",
+            "name": name,
+            "mobile": "14769265303",
+            "code": "",
+            "id_card": id_card,
+            "id": "47"
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        result = resp.json()
+        if result.get("code") == 1 and result.get("msg") == "申请成功":
+            update.message.reply_text(f"✅ {name} {id_card} 一致 🟢")
+        elif result.get("code") == 0 and "验证失败" in result.get("msg", ""):
+            update.message.reply_text(f"❌ {name} {id_card} 不一致 🔴")
+        else:
+            update.message.reply_text(f"服务器返回：\n{resp.text}")
+    except Exception as e:
+        update.message.reply_text(f"❌ 请求出错：{e}")
+
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -813,6 +914,17 @@ def main():
             BQ_NAME: [MessageHandler(Filters.text, bq_name)],
             BQ_TEMPLATE: [MessageHandler(Filters.text, bq_template)],
             BQ_SEX: [MessageHandler(Filters.text, bq_sex)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    ))
+
+    # /2ys 身份验证对话
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('2ys', ys_start)],
+        states={
+            YS_NAME: [MessageHandler(Filters.text, ys_name)],
+            YS_ID: [MessageHandler(Filters.text, ys_id)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
