@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（对话可被命令打断）=====")
+print("===== Bot 精简稳定版（每日签到得6积分）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -347,7 +347,7 @@ def start(update, context):
     msg = (f"👤 用户：{update.effective_user.first_name or '用户'}\n"
            f"🆔 ID：{uid}\n"
            f"💎 积分：{stats['points']:.2f}\n"
-           f"🌟 每日签到得0.05分\n\n"
+           f"🌟 每日签到得6积分\n\n"
            f"可用命令：\n"
            f"/sfz → 生成双面身份证\n"
            f"/plc → 生成PLC个户\n"
@@ -436,11 +436,11 @@ def qd(update, context):
     if users[str(uid)].get('last_sign_date','')==today:
         update.message.reply_text("❌ 今天已签到")
         return
-    users[str(uid)]['points']=users[str(uid)].get('points',0.0)+0.05
+    users[str(uid)]['points']=users[str(uid)].get('points',0.0)+6.0
     users[str(uid)]['last_sign_date']=today
     save_users()
     stats=get_user_stats(uid)
-    update.message.reply_text(f"✅ 签到成功！+0.05 积分，当前 {stats['points']:.2f}")
+    update.message.reply_text(f"✅ 签到成功！+6 积分，当前 {stats['points']:.2f}")
 
 def zs(update, context):
     context.user_data.clear()
