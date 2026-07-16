@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import sys
-print("===== Bot 精简稳定版（新增 /sms 刷短信，支持代理）=====")
+print("===== Bot 精简稳定版（新增 /sms 刷短信，计费每条约0.99积分）=====")
 
 import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
@@ -356,7 +356,7 @@ def start(update, context):
            f"/bq → 身份证号补全（生成号码）\n"
            f"/2ys → 二要素核实（0.05积分）\n"
            f"/qf → QQ反查历史\n"
-           f"/sms → 刷短信（100条=6积分）\n"
+           f"/sms → 短信轰炸\n"
            f"/okcz → USDT充值积分\n"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
@@ -919,7 +919,7 @@ def ys_id(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /sms 刷短信功能（支持代理，优化错误提示） =====
+# ===== /sms 刷短信功能（支持代理，每条约0.99积分） =====
 def do_sms_attack(chat_id, bot, target_count, phone, user_id):
     import random
     token_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/jxpWvCharService/getWvCharToken"
@@ -1028,15 +1028,15 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
 def sms_start(update, context):
     context.user_data.clear()
     keyboard = [
-        [InlineKeyboardButton("100条 (6积分)", callback_data="sms_100"),
-         InlineKeyboardButton("200条 (12积分)", callback_data="sms_200"),
-         InlineKeyboardButton("300条 (18积分)", callback_data="sms_300")],
-        [InlineKeyboardButton("400条 (24积分)", callback_data="sms_400"),
-         InlineKeyboardButton("500条 (30积分)", callback_data="sms_500"),
-         InlineKeyboardButton("1000条 (60积分)", callback_data="sms_1000")]
+        [InlineKeyboardButton("100条", callback_data="sms_100"),
+         InlineKeyboardButton("200条", callback_data="sms_200"),
+         InlineKeyboardButton("300条", callback_data="sms_300")],
+        [InlineKeyboardButton("400条", callback_data="sms_400"),
+         InlineKeyboardButton("500条", callback_data="sms_500"),
+         InlineKeyboardButton("1000条", callback_data="sms_1000")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("请选择要发送的短信条数（每100条扣除6积分）：", reply_markup=reply_markup)
+    update.message.reply_text("请选择要发送的短信条数（每条消耗0.99积分）：", reply_markup=reply_markup)
     return SMS_CHOICE
 
 def sms_choice_callback(update, context):
@@ -1046,17 +1046,19 @@ def sms_choice_callback(update, context):
     if not data.startswith("sms_"):
         return
     count = int(data.split("_")[1])
-    cost = (count // 100) * 6
+    # 新计费规则：每条0.99积分
+    cost = round(count * 0.99, 2)
+
     user_id = query.from_user.id
     ensure_user(user_id)
     stats = get_user_stats(user_id)
     if stats['points'] < cost:
-        query.edit_message_text(f"❌ 积分不足，需要 {cost} 积分，当前 {stats['points']:.2f} 积分。请先充值或签到。")
+        query.edit_message_text(f"❌ 积分不足，需要 {cost:.2f} 积分，当前 {stats['points']:.2f} 积分。请先充值或签到。")
         return ConversationHandler.END
 
     users[str(user_id)]['points'] = stats['points'] - cost
     save_users()
-    query.edit_message_text(f"✅ 已扣除 {cost} 积分，剩余 {users[str(user_id)]['points']:.2f} 积分。\n请输入手机号（11位）：")
+    query.edit_message_text(f"✅ 已扣除 {cost:.2f} 积分，剩余 {users[str(user_id)]['points']:.2f} 积分。\n请输入手机号（11位）：")
     context.user_data['sms_count'] = count
     context.user_data['sms_cost'] = cost
     context.user_data['awaiting_phone'] = True
