@@ -338,7 +338,7 @@ def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloa
 # ===== Telegram 命令 =====
 RECHARGE_AMOUNT = 1
 QF_QQ = 100
-BQ_NAME, BQ_TEMPLATE, BQ_SEX = range(101, 104)   # /bq 对话状态
+# 已删除 BQ_* 状态
 YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
 SMS_CHOICE = 300                                 # /sms 选择条数
 
@@ -353,7 +353,6 @@ def start(update, context):
            f"/sfz → 生成双面身份证\n"
            f"/plc → 生成PLC个户\n"
            f"/hainansf 身份证号（海南头）\n"
-           f"/bq → 身份证号补全（生成号码）\n"
            f"/2ys → 二要素核实（0.05积分）\n"
            f"/qf → QQ反查历史\n"
            f"/sms → 短信轰炸\n"
@@ -717,117 +716,6 @@ def qf_qq(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /bq 补全身份证 =====
-def bq_start(update, context):
-    context.user_data.clear()
-    update.message.reply_text("请输入姓名：")
-    return BQ_NAME
-
-def bq_name(update, context):
-    if update.message.text and update.message.text.startswith('/'):
-        context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
-        return ConversationHandler.END
-    name = update.message.text.strip()
-    if not name:
-        update.message.reply_text("姓名不能为空，请重新输入：")
-        return BQ_NAME
-    context.user_data['bq_name'] = name
-    update.message.reply_text("请输入18位身份证模板（未知位用 x 表示，例如 11010119900307xxxx）：")
-    return BQ_TEMPLATE
-
-def bq_template(update, context):
-    if update.message.text and update.message.text.startswith('/'):
-        context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
-        return ConversationHandler.END
-    template = update.message.text.strip().upper()
-    if len(template) != 18:
-        update.message.reply_text("❌ 必须输入18位模板，请重新输入：")
-        return BQ_TEMPLATE
-    unknown_positions = [i for i, c in enumerate(template) if c == 'X']
-    if not unknown_positions:
-        update.message.reply_text("❌ 模板里没有标记未知位 x，请重新输入：")
-        return BQ_TEMPLATE
-    context.user_data['bq_template'] = template
-    if 16 in unknown_positions:
-        update.message.reply_text("请指定性别（输入 男 / 女 / 直接回复 不限 或 回车跳过）：")
-        return BQ_SEX
-    else:
-        return generate_bq_result(update, context)
-
-def bq_sex(update, context):
-    if update.message.text and update.message.text.startswith('/'):
-        context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
-        return ConversationHandler.END
-    sex_input = update.message.text.strip()
-    sex_filter = None
-    if sex_input == "男":
-        sex_filter = ["1","3","5","7","9"]
-    elif sex_input == "女":
-        sex_filter = ["0","2","4","6","8"]
-    context.user_data['bq_sex_filter'] = sex_filter
-    return generate_bq_result(update, context)
-
-def generate_bq_result(update, context):
-    name = context.user_data['bq_name']
-    template = context.user_data['bq_template']
-    sex_filter = context.user_data.get('bq_sex_filter')
-    
-    fixed_part = list(template)
-    unknown_positions = [i for i, c in enumerate(template) if c == 'X']
-    
-    char_pool = []
-    for i in unknown_positions:
-        if i == 0:
-            char_pool.append(list("123456789"))
-        elif i == 16 and sex_filter is not None:
-            char_pool.append(sex_filter)
-        else:
-            char_pool.append(list("0123456789"))
-    
-    ID_WEIGHT = [7,9,10,5,8,4,2,1,6,3,7,9,10,5,8,4,2]
-    ID_CHECK_CODE = ['1','0','X','9','8','7','6','5','4','3','2']
-    
-    valid_ids = []
-    for parts in itertools.product(*char_pool):
-        temp_id = fixed_part.copy()
-        for idx, pos in enumerate(unknown_positions):
-            temp_id[pos] = parts[idx]
-        pre17 = ''.join(temp_id[:17])
-        if not pre17.isdigit():
-            continue
-        try:
-            birth_year = int(pre17[6:10])
-        except:
-            continue
-        if not (1900 <= birth_year <= datetime.now().year):
-            continue
-        total = sum(int(pre17[i]) * ID_WEIGHT[i] for i in range(17))
-        check_code = ID_CHECK_CODE[total % 11]
-        full_id = pre17 + check_code
-        valid_ids.append(full_id)
-    
-    valid_ids = list(dict.fromkeys(valid_ids))
-    if not valid_ids:
-        update.message.reply_text("❌ 未生成任何有效身份证，请检查模板。")
-        return ConversationHandler.END
-    
-    tmp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8')
-    tmp_file.write('\n'.join(valid_ids))
-    tmp_file.close()
-    with open(tmp_file.name, 'rb') as f:
-        context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=f,
-            filename=f"身份证补全结果_{name}.txt",
-            caption=f"✅ 共生成 {len(valid_ids)} 个身份证号（姓名：{name}）"
-        )
-    os.remove(tmp_file.name)
-    context.user_data.clear()
-    return ConversationHandler.END
-
 # ===== /2ys 身份验证（消耗0.05积分） =====
 def ys_start(update, context):
     context.user_data.clear()
@@ -1148,18 +1036,6 @@ def main():
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('qf', qf_start)],
         states={QF_QQ: [MessageHandler(Filters.text, qf_qq)]},
-        fallbacks=[CommandHandler('cancel', cancel)],
-        allow_reentry=True
-    ))
-
-    # /bq 补全对话
-    dp.add_handler(ConversationHandler(
-        entry_points=[CommandHandler('bq', bq_start)],
-        states={
-            BQ_NAME: [MessageHandler(Filters.text, bq_name)],
-            BQ_TEMPLATE: [MessageHandler(Filters.text, bq_template)],
-            BQ_SEX: [MessageHandler(Filters.text, bq_sex)],
-        },
         fallbacks=[CommandHandler('cancel', cancel)],
         allow_reentry=True
     ))
