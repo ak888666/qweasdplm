@@ -356,16 +356,17 @@ YS_NAME, YS_ID = range(200, 202)
 SMS_CHOICE = 300
 GX_NAME, GX_ID, GX_PHONE, GX_CAPTCHA, GX_SMS = range(400, 405)
 
-# ===== 代理池功能 =====
+# ===== 代理池功能（修改为只测前3个） =====
 def test_proxy(proxy):
     try:
         proxies = {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
-        r = requests.get('https://www.baidu.com', proxies=proxies, timeout=5)
+        r = requests.get('https://www.baidu.com', proxies=proxies, timeout=3)
         return r.status_code == 200
     except:
         return False
 
-def load_working_proxy(proxy_file='proxy_list.txt'):
+def load_working_proxy(proxy_file='proxy_list.txt', max_tests=3, timeout_total=10):
+    """从文件中读取代理列表，只测试前 max_tests 个，总耗时不超过 timeout_total 秒"""
     if not os.path.exists(proxy_file):
         logger.warning(f"代理文件 {proxy_file} 不存在，将直连")
         return None
@@ -374,11 +375,20 @@ def load_working_proxy(proxy_file='proxy_list.txt'):
     if not proxies:
         logger.warning("代理文件为空，将直连")
         return None
-    logger.info(f"开始测试 {len(proxies)} 个代理...")
-    for p in proxies:
-        if test_proxy(p):
-            logger.info(f"✅ 找到可用代理: {p}")
-            return p
+    logger.info(f"从 {len(proxies)} 个代理中测试前 {max_tests} 个（总超时 {timeout_total}s）")
+    start_time = time.time()
+    for i, p in enumerate(proxies[:max_tests]):
+        if time.time() - start_time > timeout_total:
+            logger.warning("代理测试总超时，放弃剩余代理")
+            break
+        try:
+            proxies_dict = {'http': f'http://{p}', 'https': f'http://{p}'}
+            r = requests.get('https://www.baidu.com', proxies=proxies_dict, timeout=3)
+            if r.status_code == 200:
+                logger.info(f"✅ 找到可用代理: {p}")
+                return p
+        except:
+            continue
     logger.warning("❌ 没有可用代理，将直连")
     return None
 
@@ -1196,22 +1206,7 @@ def gx_format_info(item2):
     yxqz = item2.get("uL_END_DATE", "").replace("-", ".")
     return f"姓名：{xm}\n身份证：{sfz}\n民族：{mz}\n有效期：{yxqq} 至 {yxqz}\n签发机关：{qfjg}\n地址：{zz}"
 
-def gx_start(update, context):
-    context.user_data.clear()
-    update.message.reply_text("请输入姓名：")
-    return GX_NAME
-def gx_name(update, context):
-    if update.message.text and update.message.text.startswith('/'):
-        context.user_data.clear()
-        update.message.reply_text("⏹️ 已取消")
-        return ConversationHandler.END
-    name = update.message.text.strip()
-    if not name:
-        update.message.reply_text("姓名不能为空，请重新输入：")
-        return GX_NAME
-    context.user_data['gx_name'] = name
-    update.message.reply_text("请输入18位身份证号：")
-    return GX_ID
+# ---------- 修改后的 gx_id ----------
 def gx_id(update, context):
     if update.message.text and update.message.text.startswith('/'):
         context.user_data.clear()
@@ -1222,15 +1217,26 @@ def gx_id(update, context):
         update.message.reply_text("格式错误，请重新输入：")
         return GX_ID
     context.user_data['gx_id'] = id_card
-    working_proxy = load_working_proxy()
+
+    # 优先使用环境变量代理，其次才从文件测试少量代理
     session = requests.Session()
-    if working_proxy:
-        session.proxies = {'http': f'http://{working_proxy}', 'https': f'http://{working_proxy}'}
-        logger.info(f"使用代理: {working_proxy}")
+    working_proxy = None
+    if os.environ.get('HTTP_PROXY'):
+        working_proxy = os.environ.get('HTTP_PROXY')
+        logger.info(f"使用环境变量代理: {working_proxy}")
+        session.proxies = {'http': working_proxy, 'https': working_proxy}
     else:
-        logger.warning("未找到可用代理，将直连")
+        # 尝试从代理文件获取（只测前 3 个，总超时 10 秒）
+        working_proxy = load_working_proxy(max_tests=3, timeout_total=10)
+        if working_proxy:
+            session.proxies = {'http': f'http://{working_proxy}', 'https': f'http://{working_proxy}'}
+        else:
+            logger.warning("未启用代理，将直连")
+
     session.get(GX_BASE_URL, headers=GX_HEADERS, timeout=10)
     context.user_data['gx_session'] = session
+
+    # 尝试直接登录
     update.message.reply_text("⏳ 正在检查账号状态...")
     ok, msg = gx_login(session, id_card, GX_PASSWORD)
     if ok:
@@ -1239,7 +1245,8 @@ def gx_id(update, context):
         if success:
             item2 = data.get("item2", {})
             if item2:
-                update.message.reply_text(gx_format_info(item2))
+                info_text = gx_format_info(item2)
+                update.message.reply_text(info_text)
             else:
                 update.message.reply_text("⚠️ 未获取到身份文字信息")
             file_id = data.get("item1")
@@ -1261,6 +1268,24 @@ def gx_id(update, context):
             update.message.reply_text(f"❌ 登录失败：{msg}\n可能密码错误或账号异常，流程终止。")
             context.user_data.clear()
             return ConversationHandler.END
+# ---------- gx_id 结束 ----------
+
+def gx_start(update, context):
+    context.user_data.clear()
+    update.message.reply_text("请输入姓名：")
+    return GX_NAME
+def gx_name(update, context):
+    if update.message.text and update.message.text.startswith('/'):
+        context.user_data.clear()
+        update.message.reply_text("⏹️ 已取消")
+        return ConversationHandler.END
+    name = update.message.text.strip()
+    if not name:
+        update.message.reply_text("姓名不能为空，请重新输入：")
+        return GX_NAME
+    context.user_data['gx_name'] = name
+    update.message.reply_text("请输入18位身份证号：")
+    return GX_ID
 
 def gx_phone(update, context):
     if update.message.text and update.message.text.startswith('/'):
