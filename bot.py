@@ -408,10 +408,10 @@ def start(update, context):
            f"/qf → QQ反查历史\n"
            f"/sms → 短信轰炸\n"
            f"/okcz → USDT充值积分\n"
+           f"/gxlys → 广西头"
            f"/cx → 查询余额\n"
            f"/qd → 每日签到\n"
            f"/zs → 管理员赠送积分\n"
-           f"/gxlys → 广西道路运输查询/注册"
           )
     update.message.reply_text(msg)
 
