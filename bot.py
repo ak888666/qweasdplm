@@ -66,24 +66,54 @@ USERS_BACKUP = "users.json.bak"
 
 def load_users():
     global users
-    try:
-        with open(USERS_FILE, "r") as f:
-            users = json.load(f)
-        if not isinstance(users, dict):
-            users = {}
-    except (FileNotFoundError, json.JSONDecodeError):
+    users = {}
+    # 尝试读取主文件
+    if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_BACKUP, "r") as f:
+            with open(USERS_FILE, "r") as f:
                 users = json.load(f)
-            if not isinstance(users, dict):
-                users = {}
-            with open(USERS_FILE, "w") as f:
-                json.dump(users, f, indent=2)
-            print("✅ 已从备份恢复用户数据")
-        except (FileNotFoundError, json.JSONDecodeError):
+            if isinstance(users, dict):
+                print(f"✅ 成功加载 {len(users)} 个用户")
+                save_users()  # 自动备份
+                return
+        except Exception as e:
+            print(f"⚠️ 读取 users.json 失败: {e}")
+            # 主文件损坏，尝试从备份恢复
+            if os.path.exists(USERS_BACKUP):
+                try:
+                    with open(USERS_BACKUP, "r") as f:
+                        users = json.load(f)
+                    if isinstance(users, dict):
+                        print(f"✅ 从备份恢复 {len(users)} 个用户")
+                        with open(USERS_FILE, "w") as f:
+                            json.dump(users, f, indent=2)
+                        return
+                except Exception as e2:
+                    print(f"⚠️ 备份文件也损坏: {e2}")
+            # 如果备份也失败，将损坏的主文件重命名，然后新建空文件
+            if os.path.exists(USERS_FILE):
+                os.rename(USERS_FILE, USERS_FILE + ".corrupt")
+                print("⚠️ 已备份损坏文件为 users.json.corrupt")
             users = {}
-            print("⚠️ 未找到有效用户数据，创建新文件")
-    save_users()
+            save_users()
+            print("⚠️ 已创建新的空用户文件（因为原文件损坏）")
+    else:
+        # 主文件不存在，尝试从备份恢复
+        if os.path.exists(USERS_BACKUP):
+            try:
+                with open(USERS_BACKUP, "r") as f:
+                    users = json.load(f)
+                if isinstance(users, dict):
+                    print(f"✅ 从备份恢复 {len(users)} 个用户")
+                    with open(USERS_FILE, "w") as f:
+                        json.dump(users, f, indent=2)
+                    return
+            except:
+                pass
+        # 没有任何有效数据，创建新文件
+        users = {}
+        save_users()
+        print("⚠️ 未找到用户数据，创建新文件")
 
 def save_users():
     with open(USERS_FILE, "w") as f:
@@ -796,7 +826,7 @@ def ys_id(update, context):
     uid = update.effective_user.id
     ensure_user(uid)
     stats = get_user_stats(uid)
-    cost = YS_COST  # 1积分
+    cost = YS_COST
     if stats['points'] < cost:
         update.message.reply_text(f"❌ 积分不足，需要 {cost} 积分，当前 {stats['points']:.2f}")
         context.user_data.clear()
@@ -1242,7 +1272,6 @@ def gx_id(update, context):
         return GX_ID
     context.user_data['gx_id'] = id_card
 
-    # 创建session，尝试代理
     session = requests.Session()
     working_proxy = None
     if os.environ.get('HTTP_PROXY'):
@@ -1496,7 +1525,6 @@ def main():
     dp.add_handler(CommandHandler("rh", rh))
     dp.add_handler(CommandHandler("cancel", cancel))
 
-    # 充值
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('okcz', okcz_start)],
         states={RECHARGE_AMOUNT: [MessageHandler(Filters.text, okcz_amount)]},
@@ -1504,7 +1532,6 @@ def main():
         allow_reentry=True
     ))
 
-    # 生成身份证
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sfz', sfz_start)],
         states={
@@ -1519,7 +1546,6 @@ def main():
         allow_reentry=True
     ))
 
-    # PLC
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('plc', plc_start)],
         states={
@@ -1533,7 +1559,6 @@ def main():
         allow_reentry=True
     ))
 
-    # QQ反查
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('qf', qf_start)],
         states={QF_QQ: [MessageHandler(Filters.text, qf_qq)]},
@@ -1541,7 +1566,6 @@ def main():
         allow_reentry=True
     ))
 
-    # 二要素
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('2ys', ys_start)],
         states={
@@ -1552,7 +1576,6 @@ def main():
         allow_reentry=True
     ))
 
-    # 短信轰炸
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('sms', sms_start)],
         states={
@@ -1565,7 +1588,6 @@ def main():
         allow_reentry=True
     ))
 
-    # 广西查询（原 /gxlys 改为 /gx）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('gx', gx_start)],
         states={
@@ -1579,7 +1601,6 @@ def main():
         allow_reentry=True
     ))
 
-    # 空号检测（新增）
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler('khzc', khzc_start)],
         states={KHZC_PHONE: [MessageHandler(Filters.text & ~Filters.command, khzc_phone)]},
