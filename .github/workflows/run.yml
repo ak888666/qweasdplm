@@ -2,12 +2,11 @@ name: Telegram Bot
 
 on:
   schedule:
-    - cron: '0 */5 * * *'   # 每5小时触发一次
+    - cron: '0 */5 * * *'
   workflow_dispatch:
   push:
     branches: [ "main" ]
 
-# 并发控制，同一时间只允许一个运行
 concurrency:
   group: telegram-bot-run
   cancel-in-progress: true
@@ -24,14 +23,24 @@ jobs:
         with:
           python-version: '3.10'
 
-      # ---------- 新增缓存 users.json ----------
+      # ----- 缓存 users.json（新版 key）-----
       - name: Cache users.json
         uses: actions/cache@v3
         with:
           path: users.json
-          key: users-json
-          restore-keys: users-json
-      # ---------------------------------------
+          key: users-json-v2
+          restore-keys: users-json-v2
+
+      # ----- 确保文件存在且不为空 -----
+      - name: Ensure users.json exists
+        run: |
+          if [ ! -f users.json ] || [ ! -s users.json ]; then
+            echo '{}' > users.json
+            echo "📄 已创建空的 users.json"
+          else
+            echo "✅ users.json 已存在，内容如下："
+            cat users.json
+          fi
 
       - name: Install dependencies
         run: |
@@ -49,5 +58,6 @@ jobs:
           OKPAY_ID: ${{ secrets.OKPAY_ID }}
           OKPAY_TOKEN: ${{ secrets.OKPAY_TOKEN }}
           CALLBACK_URL: ${{ secrets.CALLBACK_URL }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}   # 如果有就加，没有也没关系
         run: |
           python bot.py
