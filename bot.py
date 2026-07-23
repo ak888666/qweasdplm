@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*
 import sys
 print("===== Bot 精简稳定版（新增 /sms 刷短信，计费每条约0.99积分）=====")
 
