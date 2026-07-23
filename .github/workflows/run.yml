@@ -7,10 +7,10 @@ on:
   push:
     branches: [ "main" ]
 
-# 关键：并发控制，同一时间只允许一个运行
+# 并发控制，同一时间只允许一个运行
 concurrency:
   group: telegram-bot-run
-  cancel-in-progress: true   # 如果新的运行开始，取消旧的
+  cancel-in-progress: true
 
 jobs:
   run-bot:
@@ -18,14 +18,26 @@ jobs:
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      # ---------- 新增缓存 users.json ----------
+      - name: Cache users.json
+        uses: actions/cache@v3
+        with:
+          path: users.json
+          key: users-json
+          restore-keys: users-json
+      # ---------------------------------------
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt --timeout 1000
+
       - name: Run bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
